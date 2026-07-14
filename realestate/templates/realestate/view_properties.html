@@ -1,0 +1,154 @@
+{% extends 'realestate/base.html' %}
+{% block title %}View Properties{% endblock %}
+{% block nav_view_assets %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Mini File Vault UI */
+    .mini-vault { max-height: 220px; overflow-y: auto; padding-right: 5px; margin: 15px 0 25px 0; display: flex; flex-direction: column; gap: 8px; }
+    .mini-vault::-webkit-scrollbar { width: 6px; }
+    .mini-vault::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+    .file-item { display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border: 1px solid var(--border-light); padding: 10px 15px; border-radius: 6px; transition: 0.2s; }
+    .file-item:hover { border-color: var(--primary-gold); background: #fff; }
+
+    .file-details { display: flex; align-items: center; gap: 12px; overflow: hidden; }
+    .file-icon-box { background: rgba(212, 175, 55, 0.1); color: var(--primary-gold); width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+
+    .file-text { display: flex; flex-direction: column; }
+    .file-title { font-weight: 600; font-size: 0.9rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; }
+    .file-meta { font-size: 0.75rem; color: #64748b; }
+
+    .btn-trash { background: none; border: none; color: #ef4444; font-size: 1.1rem; cursor: pointer; padding: 5px; opacity: 0.7; transition: 0.2s; }
+    .btn-trash:hover { opacity: 1; transform: scale(1.1); }
+
+
+
+
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+    .card { background: var(--card-bg); padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; border: 1px solid #e2e8f0; transition: 0.2s; }
+    .card:hover { border-color: var(--primary-gold); transform: translateY(-3px); }
+
+    .progress-bg { background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 15px; }
+    .progress-bar { background: var(--primary-gold); height: 100%; }
+
+    /* HTML5 Dialog Styles */
+    dialog { margin: auto; padding: 0; border: none; border-radius: 12px; width: 90%; max-width: 800px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+    dialog::backdrop { background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); }
+    .dialog-header { background: var(--dark-sidebar); color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .close-btn { background: none; border: none; color: var(--primary-gold); font-size: 1.5rem; cursor: pointer; }
+    .dialog-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 0.9rem; color: var(--text-main); }
+    th { background: #f8fafc; color: #64748b; text-transform: uppercase; font-size: 0.75rem; position: sticky; top: 0; box-shadow: inset 0 -1px 0 var(--border-light); }
+
+    /* File Upload UI */
+    .upload-section { margin-top: 30px; padding-top: 20px; border-top: 2px dashed #e2e8f0; }
+    .upload-form { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;}
+    .upload-form input { padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; flex: 1; min-width: 150px; font-family: inherit;}
+    .upload-form button { background: var(--primary-gold); color: #fff; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    .doc-link { color: #2563eb; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 5px;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Properties Overview</h1>
+</div>
+<div><br></div>
+
+<div class="grid">
+    {% for data in property_data %}
+    <div class="card" onclick="document.getElementById('modal-{{ data.property.id }}').showModal()">
+        <h3 style="margin-bottom: 5px;">{{ data.property.name }}</h3>
+        <p style="color: #64748b; font-size: 0.9rem;"><i class="fa-solid fa-location-dot"></i> {{ data.property.location }}</p>
+
+        <div style="margin-top: 20px; display: flex; justify-content: space-between; font-weight: 600;">
+            <span>Occupancy</span>
+            <span style="color: var(--primary-gold);">{{ data.occupancy_rate }}%</span>
+        </div>
+        <div class="progress-bg">
+            <div class="progress-bar" style="width: {{ data.occupancy_rate }}%;"></div>
+        </div>
+    </div>
+
+    <!-- Property Modal -->
+    <dialog id="modal-{{ data.property.id }}">
+
+        <div class="dialog-header">
+            <h2>{{ data.property.name }} - Details</h2>
+            <button class="close-btn" onclick="document.getElementById('modal-{{ data.property.id }}').close()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="dialog-body">
+             <!-- Document Management Section -->
+           <div class="upload-section">
+                <h3>Property Documents</h3>
+
+                <div class="mini-vault">
+                    {% for doc in data.documents %}
+                    <div class="file-item">
+                        <a href="{{ doc.file.url }}" target="_blank" style="text-decoration: none; flex-grow: 1;">
+                            <div class="file-details">
+                                <div class="file-icon-box"><i class="fa-solid fa-file-pdf"></i></div>
+                                <div class="file-text">
+                                    <span class="file-title">{{ doc.title }}</span>
+                                    <span class="file-meta">Uploaded: {{ doc.uploaded_at|date:"M d, Y" }}</span>
+                                </div>
+                            </div>
+                        </a>
+
+                        <form action="{% url 'delete_property_document' landlord.id doc.id %}" method="POST" style="margin: 0;" onsubmit="return confirm('Are you sure you want to permanently delete this document?');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn-trash" title="Delete File"><i class="fa-solid fa-trash-can"></i></button>
+                        </form>
+                    </div>
+                    {% empty %}
+                    <div style="text-align: center; color: #64748b; padding: 20px; background: #f8fafc; border-radius: 6px; border: 1px dashed #cbd5e1;">
+                        <i class="fa-regular fa-folder-open" style="font-size: 2rem; margin-bottom: 10px; opacity: 0.5;"></i>
+                        <p style="font-size: 0.85rem;">No files uploaded yet.</p>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <form action="{% url 'upload_document' landlord.id %}" method="POST" enctype="multipart/form-data" class="upload-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="property_id" value="{{ data.property.id }}">
+                    <input type="text" name="title" placeholder="Document Title (e.g., Title Deed)" required>
+                    <input type="file" name="document" required style="background: #fff; padding: 6px;">
+                    <button type="submit"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
+                </form>
+            </div>
+            <div><br></div>
+            <h3>Active Tenants</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Unit</th>
+                        <th>Tenant Name</th>
+                        <th>Contract Period</th>
+                        <th>Rent (AED)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for contract in data.active_contracts %}
+                    <tr>
+                        <td><strong>{{ contract.unit.unit_number }}</strong><br><span style="font-size:0.8rem; color:#64748b;">{{ contract.unit.unit_type }}</span></td>
+                        <td>{{ contract.tenant.full_name }}</td>
+                        <td>{{ contract.start_date|date:"M d, Y" }} - {{ contract.end_date|date:"M d, Y" }}</td>
+                        <td>{{ contract.total_amount|floatformat:"2g" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" style="text-align: center;">No active tenants found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+
+        </div>
+    </dialog>
+    {% endfor %}
+</div>
+{% endblock %}

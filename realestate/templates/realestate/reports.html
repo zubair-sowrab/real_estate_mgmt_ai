@@ -1,0 +1,126 @@
+{% extends 'realestate/base.html' %}
+{% block title %}Comprehensive Reports{% endblock %}
+{% block nav_reports %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+  .page-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 5px; }
+    .filter-section { background: var(--card-bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border-light); margin-bottom: 30px; }
+
+    /* Responsive Grid for Filters */
+    .responsive-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+
+    .form-control { padding: 10px; border: 1px solid var(--border-light); border-radius: 6px; width: 100%; }
+    .btn-action { background: var(--dark-sidebar); color: white; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; }
+    .btn-action:hover { background: var(--primary-gold); color: var(--dark-sidebar); }
+    .btn-export { background: #10b981; color: white; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; }
+    .btn-print { background: #3b82f6; color: white; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; }
+
+    /* Mobile Table Scroll Fix */
+    .table-responsive {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling for iOS */
+        margin-top: 15px;
+    }
+
+    /* Prevent columns from squashing into unreadable slivers */
+    .table-responsive table {
+        min-width: 800px;
+    }
+
+    /* Button grouping fix for mobile */
+    .button-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    @media print {
+        body * { visibility: hidden; }
+        #printable-report, #printable-report * { visibility: visible; }
+        #printable-report { position: absolute; left: 0; top: 0; width: 100%; }
+        .no-print { display: none !important; }
+        .table-responsive { overflow-x: visible; } /* Remove scrollbar when printing */
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Comprehensive Reports</h1>
+
+<div class="filter-section no-print">
+    <form method="GET" class="responsive-grid">
+        <div>
+            <label>Property</label>
+            <select name="property" class="form-control">
+                <option value="">All</option>
+                {% for prop in properties %}
+                    <option value="{{ prop.id }}" {% if filters.property == prop.id %}selected{% endif %}>{{ prop.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div><label>Unit</label><input type="text" name="unit" class="form-control" value="{{ filters.unit }}"></div>
+        <div><label>Tenant Name</label><input type="text" name="tenant" class="form-control" value="{{ filters.tenant }}"></div>
+
+        <div>
+            <label>Cheque Status</label>
+            <select name="status" class="form-control">
+                <option value="">All</option>
+                <option value="Cleared" {% if filters.status == 'Cleared' %}selected{% endif %}>Cleared</option>
+                <option value="Pending PDC" {% if filters.status == 'Pending PDC' %}selected{% endif %}>Pending PDC</option>
+                <option value="Bounced" {% if filters.status == 'Bounced' %}selected{% endif %}>Bounced</option>
+            </select>
+        </div>
+        <div><label>Date From</label><input type="date" name="date_from" class="form-control" value="{{ filters.date_from }}"></div>
+        <div><label>Date To</label><input type="date" name="date_to" class="form-control" value="{{ filters.date_to }}"></div>
+
+        <div style="grid-column: 1 / -1;" class="button-group">
+            <button type="submit" class="btn-action"><i class="fa-solid fa-magnifying-glass"></i> Generate</button>
+            <button type="submit" name="export" value="csv" class="btn-export"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+            <button type="button" onclick="window.print()" class="btn-print"><i class="fa-solid fa-print"></i> Print</button>
+            <a href="{% url 'owner_reports' landlord.id %}" class="btn-action" style="background: gray; text-decoration: none; display: flex; align-items: center; justify-content: center;">Clear</a>
+        </div>
+    </form>
+</div>
+
+<div id="printable-report" style="background: white; padding: 20px; border-radius: 8px;">
+    <h3 style="margin-bottom: 5px;">Report Results</h3>
+    <p style="margin-bottom: 15px; font-weight: 600; color: var(--text-main);">
+        Total: <span style="color: var(--success);">AED {{ total_amount|floatformat:"2g" }}</span>
+    </p>
+
+    <div class="table-responsive">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+            <tr style="border-bottom: 2px solid #ddd; background: #f8fafc;">
+                <th style="padding: 12px 10px; white-space: nowrap;">Property - Unit</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Tenant</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Reference</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Amount</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Date</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Status</th>
+            </tr>
+            {% for row in reports_data %}
+            <tr style="border-bottom: 1px solid #eee;">
+                <td style="padding: 12px 10px;">{{ row.contract.unit.property_asset.name }} - {{ row.contract.unit.unit_number }}</td>
+                <td style="padding: 12px 10px;">{{ row.contract.tenant.full_name }}</td>
+                <td style="padding: 12px 10px;">{{ row.cheque_number }}</td>
+                <td style="padding: 12px 10px; font-weight: 600; white-space: nowrap;">AED {{ row.amount|floatformat:"2g" }}</td>
+                <td style="padding: 12px 10px; white-space: nowrap;">{{ row.due_date|date:"M d, Y" }}</td>
+                <td style="padding: 12px 10px;">
+                    <span style="padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;
+                        {% if row.status == 'Cleared' %}background: var(--success-bg); color: var(--success);
+                        {% elif row.status == 'Bounced' %}background: var(--danger-bg); color: var(--danger);
+                        {% else %}background: var(--warning-bg); color: var(--warning);{% endif %}">
+                        {{ row.status }}
+                    </span>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" style="padding: 30px; text-align: center; color: var(--text-muted);">No data matches your criteria.</td></tr>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endblock %}

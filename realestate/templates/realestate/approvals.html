@@ -1,0 +1,159 @@
+{% extends 'realestate/base.html' %}
+{% block title %}Approvals Dashboard{% endblock %}
+{% block nav_approvals %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 5px; }
+    .page-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 25px; }
+
+    .approval-section { margin-bottom: 30px; border: 1px solid var(--border-light); border-radius: 6px; overflow: hidden; background: #fff;}
+
+    /* Colors matching the PACT screenshots */
+    .header-unapproved { background-color: #fbc69c; padding: 15px; font-weight: 600; font-size: 1.1rem; color: #000; border-bottom: 1px solid var(--border-light);}
+    .header-approved { background-color: #c4d79b; padding: 15px; font-weight: 600; font-size: 1.1rem; color: #000; border-bottom: 1px solid var(--border-light);}
+    .header-rejected { background-color: #92b0d5; padding: 15px; font-weight: 600; font-size: 1.1rem; color: #000; border-bottom: 1px solid var(--border-light);}
+
+    .table-responsive { overflow-x: auto; max-height: 400px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+    th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid var(--border-light); font-size: 0.85rem; white-space: nowrap; }
+
+    /* Sub-header inside table matching the blue group header in PACT */
+    .group-header { background-color: #8dbdd8; font-weight: 700; color: #000; }
+
+    th { background: #f8fafc; font-weight: 700; color: var(--text-main); position: sticky; top: 0; box-shadow: inset 0 -1px 0 var(--border-light); }
+    .text-right { text-align: right; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Approval Dashboard</h1>
+<p class="page-subtitle">Real-time status of payment vouchers and petty cash.</p>
+
+<!-- UNAPPROVED -->
+<div class="approval-section">
+    <div class="header-unapproved">UnApproved Documents ({{ unapproved.count }})</div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Doc Date</th>
+                    <th>Doc No</th>
+                    <th>Credit Account</th>
+                    <th>Debit Account</th>
+                    <th class="text-right">Amount</th>
+                    <th>L1</th>
+                    <th>L2</th>
+                    <th>L3</th>
+                    <th>L4</th>
+                    <th>Status</th>
+                    <th>Created By</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in unapproved %}
+                <tr>
+                    <td>{{ doc.doc_date|date:"d/m/Y" }}</td>
+                    <td><strong>{{ doc.doc_no }}</strong></td>
+                    <td>{{ doc.credit_account|truncatechars:35 }}</td>
+                    <td>{{ doc.debit_account|truncatechars:35 }}</td>
+                    <td class="text-right" style="color:red; font-weight:bold;">{{ doc.amount|floatformat:"2g" }}</td>
+                    <td>{{ doc.l1 }}</td>
+                    <td>{{ doc.l2 }}</td>
+                    <td>{{ doc.l3 }}</td>
+                    <td>{{ doc.l4 }}</td>
+                    <td>{{ doc.status }}</td>
+                    <td>{{ doc.created_by }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="11" style="text-align: center; color: var(--text-muted);">No unapproved documents.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- APPROVED -->
+<div class="approval-section">
+    <div class="header-approved">Approved Documents ({{ approved.count }})</div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Doc Date</th>
+                    <th>Doc No</th>
+                    <th>Credit Account</th>
+                    <th>Debit Account</th>
+                    <th class="text-right">Amount</th>
+                    <th>L1</th>
+                    <th>L2</th>
+                    <th>L3</th>
+                    <th>L4</th>
+                    <th>Status</th>
+                    <th>Created By</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in approved %}
+                <tr>
+                    <td>{{ doc.doc_date|date:"d/m/Y" }}</td>
+                    <td><strong>{{ doc.doc_no }}</strong></td>
+                    <td>{{ doc.credit_account|truncatechars:35 }}</td>
+                    <td>{{ doc.debit_account|truncatechars:35 }}</td>
+                    <td class="text-right">{{ doc.amount|floatformat:"2g" }}</td>
+                    <td>{{ doc.l1 }}</td>
+                    <td>{{ doc.l2 }}</td>
+                    <td>{{ doc.l3 }}</td>
+                    <td>{{ doc.l4 }}</td>
+                    <td>{{ doc.status }}</td>
+                    <td>{{ doc.created_by }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="11" style="text-align: center; color: var(--text-muted);">No approved documents.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- REJECTED -->
+<div class="approval-section">
+    <div class="header-rejected">Rejected Documents ({{ rejected.count }})</div>
+    <div class="table-responsive">
+        <table>
+            <thead>
+                <tr>
+                    <th>Doc Date</th>
+                    <th>Doc No</th>
+                    <th>Credit Account</th>
+                    <th>Debit Account</th>
+                    <th class="text-right">Value</th>
+                    <th>L1</th>
+                    <th>L2</th>
+                    <th>L3</th>
+                    <th>Status</th>
+                    <th>User Name</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for doc in rejected %}
+                <tr>
+                    <td>{{ doc.doc_date|date:"d/m/Y" }}</td>
+                    <td><strong>{{ doc.doc_no }}</strong></td>
+                    <td>{{ doc.credit_account|truncatechars:35 }}</td>
+                    <td>{{ doc.debit_account|truncatechars:35 }}</td>
+                    <td class="text-right">{{ doc.amount|floatformat:"2g" }}</td>
+                    <td>{{ doc.l1 }}</td>
+                    <td>{{ doc.l2 }}</td>
+                    <td>{{ doc.l3 }}</td>
+                    <td>{{ doc.status }}</td>
+                    <td>{{ doc.created_by }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No rejected documents.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

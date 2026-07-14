@@ -1,0 +1,33 @@
+# --- CRITICAL SECURE EXCLUSIONS ---
+pact_sync.py
+pact_explorer.py
+pact_database_blueprint.txt
+.env
+*.env
+db.sqlite3
+secrets.json
+
+# --- Python Virtual Environments & Packages ---
+venv/
+.venv/
+env/
+ENV/
+pyvenv.cfg
+.python-version
+
+# --- Django Specifics ---
+staticfiles/
+media/
+*.log
+*.pot
+*.pyc
+__pycache__/
+db.sqlite3
+db.sqlite3-journal
+
+# --- OS & IDE Specifics ---
+.DS_Store
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace

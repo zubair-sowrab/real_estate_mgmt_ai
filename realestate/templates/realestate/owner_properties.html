@@ -1,0 +1,202 @@
+{% extends 'realestate/base.html' %}
+{% block title %}Asset Management{% endblock %}
+{% block nav_assets %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.5px; }
+    .page-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px; font-weight: 500; }
+    
+    /* --- Tabs --- */
+    .tabs { display: flex; gap: 15px; margin-bottom: 25px; border-bottom: 2px solid var(--border-light); overflow-x: auto; white-space: nowrap; }
+    .tab-btn { padding: 12px 20px; background: none; border: none; font-size: 0.95rem; font-weight: 600; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; transition: all 0.2s; font-family: inherit; }
+    .tab-btn:hover { color: var(--text-main); }
+    .tab-btn.active { color: var(--primary-gold); border-bottom: 3px solid var(--primary-gold); }
+    
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* --- Tables --- */
+    .table-container { background: var(--card-bg); border: 1px solid var(--border-light); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); max-height: 60vh; overflow-y: auto; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 900px; }
+    th, td { padding: 14px 18px; text-align: left; white-space: nowrap; }
+    td { border-bottom: 1px solid var(--border-light); font-size: 0.9rem; color: var(--text-main); }
+    .text-right { text-align: right; }
+    
+    /* Sticky Headers */
+    th { background-color: #f8fafc; color: var(--text-muted); font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2; box-shadow: inset 0 -1px 0 var(--border-light); }
+
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+    .badge.success { background: var(--success-bg); color: var(--success); }
+    .badge.warning { background: var(--warning-bg); color: var(--warning); }
+    .badge.danger { background: var(--danger-bg); color: var(--danger); }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Asset Management</h1>
+<p class="page-subtitle" style="margin-bottom: 20px;">Operational breakdown of active leases and vacancies.</p>
+
+<div class="tabs">
+    <button class="tab-btn active" onclick="openTab(event, 'tab-active')">Active Contracts ({{ active_contracts.count }})</button>
+    <button class="tab-btn" onclick="openTab(event, 'tab-renewal')">Due for Renewal ({{ renewals.count }})</button>
+    <button class="tab-btn" onclick="openTab(event, 'tab-expiry')">Expiry Next 90 Days ({{ expiry_90.count }})</button>
+    <button class="tab-btn" onclick="openTab(event, 'tab-vacant')">Vacant List ({{ vacant_units.count }})</button>
+</div>
+
+<div id="tab-active" class="tab-content active">
+    <div class="table-container">
+        <table style="min-width: 100%;">
+            <thead>
+                <tr>
+                    <th>Property & Tenant</th>
+                    <th>Lease Duration</th>
+                    <th class="text-right">Financials & Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for contract in active_contracts %}
+                <tr>
+                    <td>
+                        <strong>{{ contract.unit.property_asset.name }} - Unit {{ contract.unit.unit_number }}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;"><i class="fa-regular fa-user"></i> {{ contract.tenant.full_name }}</span>
+                    </td>
+                    <td>
+                        {{ contract.start_date|date:"M d, Y" }} <br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">to {{ contract.end_date|date:"M d, Y" }}</span>
+                    </td>
+                    <td class="text-right">
+                        <strong>AED {{ contract.total_amount|floatformat:"2g" }}</strong><br>
+                        <span class="badge success">{{ contract.status }}</span>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No active contracts found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="tab-renewal" class="tab-content">
+    <div class="table-container">
+        <table style="min-width: 100%;">
+            <thead>
+                <tr>
+                    <th>Property & Tenant</th>
+                    <th>Contact Information</th>
+                    <th class="text-right">Lease Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for contract in renewals %}
+                <tr>
+                    <td>
+                        <strong>{{ contract.unit.property_asset.name }} - Unit {{ contract.unit.unit_number }}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">{{ contract.tenant.full_name }}</span>
+                    </td>
+                    <td>
+                        <i class="fa-solid fa-phone" style="font-size:0.75rem; color:var(--text-muted)"></i> {{ contract.tenant.phone }}<br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">{{ contract.tenant.email|default:"No email provided" }}</span>
+                    </td>
+                    <td class="text-right">
+                        <strong>AED {{ contract.total_amount|floatformat:"2g" }}</strong><br>
+                        <span style="color: var(--danger); font-size: 0.85rem; font-weight: 600;">Ends: {{ contract.end_date|date:"M d, Y" }}</span>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No contracts due for immediate renewal.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="tab-expiry" class="tab-content">
+    <div class="table-container">
+        <table style="min-width: 100%;">
+            <thead>
+                <tr>
+                    <th>Property & Tenant</th>
+                    <th>Contact Information</th>
+                    <th class="text-right">Lease Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for contract in expiry_90 %}
+                <tr>
+                    <td>
+                        <strong>{{ contract.unit.property_asset.name }} - Unit {{ contract.unit.unit_number }}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">{{ contract.tenant.full_name }}</span>
+                    </td>
+                    <td>
+                        <i class="fa-solid fa-phone" style="font-size:0.75rem; color:var(--text-muted)"></i> {{ contract.tenant.phone }}<br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">{{ contract.tenant.email|default:"N/A" }}</span>
+                    </td>
+                    <td class="text-right">
+                        <strong>AED {{ contract.total_amount|floatformat:"2g" }}</strong><br>
+                        <span style="color: var(--warning); font-size: 0.85rem; font-weight: 600;">Ends: {{ contract.end_date|date:"M d, Y" }}</span>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No contracts expiring within the next 90 days.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="tab-vacant" class="tab-content">
+    <div class="table-container">
+        <table style="min-width: 100%;">
+            <thead>
+                <tr>
+                    <th>Location & Unit</th>
+                    <th>Unit Details</th>
+                    <th class="text-right">Asking Rent</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for unit in vacant_units %}
+                <tr>
+                    <td>
+                        <strong>{{ unit.property_asset.name }}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">Unit {{ unit.unit_number }}</span>
+                    </td>
+                    <td>
+                        {{ unit.unit_type }}<br>
+                        <span class="badge danger" style="margin-top: 4px;">Vacant</span>
+                    </td>
+                    <td class="text-right">
+                        <strong>AED {{ unit.base_rent|floatformat:"2g" }}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">Annual</span>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Portfolio is fully occupied.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function openTab(evt, tabId) {
+        var i, tabcontent, tablinks;
+        tabcontent = document.getElementsByClassName("tab-content");
+        for (i = 0; i < tabcontent.length; i++) {
+            tabcontent[i].style.display = "none";
+            tabcontent[i].classList.remove("active");
+        }
+        tablinks = document.getElementsByClassName("tab-btn");
+        for (i = 0; i < tablinks.length; i++) {
+            tablinks[i].classList.remove("active");
+        }
+        document.getElementById(tabId).style.display = "block";
+        document.getElementById(tabId).classList.add("active");
+        evt.currentTarget.classList.add("active");
+    }
+</script>
+{% endblock %}

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YBN Portal - Secure Login</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; } /* Dark slate background */
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="bg-[#111827] p-8 text-center border-b border-gray-800">
+            <!-- Simulated Logo -->
+            <div class="w-16 h-16 mx-auto bg-[#D4AF37] rounded-full flex items-center justify-center mb-4 shadow-lg">
+                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+            </div>
+            <h1 class="text-2xl font-bold text-white tracking-wide">YBN PORTAL</h1>
+           <p class="text-[#D4AF37] text-sm mt-2 font-medium tracking-widest uppercase">Secure Executive Access</p>
+
+<p class="text-[#D4AF37] text-sm mt-2 font-medium tracking-widest uppercase">{{ role|default:"Secure" }} Access</p>
+        </div>
+
+        <div class="p-8">
+            {% if error %}
+            <div class="bg-red-50 text-red-600 p-4 rounded-lg mb-6 text-sm font-medium border border-red-200 text-center">
+                {{ error }}
+            </div>
+            {% endif %}
+
+            <form method="POST" action="{% url 'login' %}" class="space-y-6">
+                {% csrf_token %}
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+                    <input type="text" name="username" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#D4AF37] focus:border-[#D4AF37] outline-none transition bg-gray-50">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Password</label>
+                    <input type="password" name="password" required class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-[#D4AF37] focus:border-[#D4AF37] outline-none transition bg-gray-50">
+                </div>
+
+                <button type="submit" class="w-full bg-[#D4AF37] hover:bg-[#c5a030] text-[#111827] font-bold py-3 px-4 rounded-lg transition shadow-md">
+                    Secure Login
+                </button>
+            </form>
+        </div>
+        <div style="margin-bottom: 20px; text-align: right; margin-right:34px;">
+    <a href="{% url 'landing_page' %}" style="color: var(--text-muted); text-decoration: underline; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 6px;">
+        <i class="fa-solid fa-arrow-left"></i> Back to Role Selection
+    </a>
+</div>
+    </div>
+
+<script>
+        // Force reload if loaded from browser history cache.
+        // Django's login_view will then auto-redirect authenticated users back to the dashboard.
+        window.addEventListener('pageshow', function (event) {
+            if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+                window.location.reload();
+            }
+        });
+    </script>
+</body>
+</html>
+</body>
+</html>

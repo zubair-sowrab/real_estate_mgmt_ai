@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{% block title %}YBN Portal{% endblock %}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary-gold: #D4AF37;
+            --dark-sidebar: #111827;
+            --app-bg: #f4f6f9;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border-light: #e2e8f0;
+            --success: #16a34a;
+            --success-bg: #dcfce7;
+            --warning: #d97706;
+            --warning-bg: #fef3c7;
+            --danger: #dc2626;
+            --danger-bg: #fee2e2;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            font-weight: 400;
+            background-color: var(--app-bg);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .sidebar {
+            width: 260px;
+            background-color: var(--dark-sidebar);
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        .logo-area {
+            padding: 30px 25px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--primary-gold);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .nav-menu { padding: 20px 0; flex: 1; overflow-y: auto;}
+
+        .nav-item {
+            padding: 14px 25px;
+            color: #94a3b8;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border-left: 3px solid transparent;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            color: var(--primary-gold);
+            background-color: rgba(212, 175, 55, 0.05);
+            border-left: 3px solid var(--primary-gold);
+        }
+
+        .main-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .header {
+            height: 70px;
+            background: var(--card-bg);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 40px;
+            border-bottom: 1px solid var(--border-light);
+            flex-shrink: 0;
+        }
+
+        .logout-btn {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--danger);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 25px;
+            transition: opacity 0.2s;
+        }
+        .logout-btn:hover { opacity: 0.7; }
+
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border-left: 1px solid var(--border-light);
+            padding-left: 25px;
+        }
+
+        .avatar {
+            width: 38px;
+            height: 38px;
+            background: #f8fafc;
+            border: 2px solid var(--primary-gold);
+            color: var(--dark-sidebar);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+        }
+
+        .content {
+            padding: 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .mobile-menu-btn { display: none; }
+        .sidebar-overlay { display: none; }
+
+        @media (max-width: 768px) {
+            .sidebar { position: fixed; top: 0; left: 0; height: 100%; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
+            .sidebar.active { transform: translateX(0); }
+            .sidebar-overlay.active { display: block; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5; opacity: 1; }
+            .header { justify-content: space-between; padding: 0 20px; }
+            .mobile-menu-btn { display: block; font-size: 1.5rem; color: var(--text-main); cursor: pointer; background: none; border: none; }
+            .content { padding: 20px; }
+        }
+
+        {% block extra_css %}{% endblock %}
+    </style>
+
+
+
+</head>
+<body>
+
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+    <div class="sidebar" id="sidebar">
+        <div class="logo-area">
+            <i class="fa-solid fa-gem"></i>
+            <div>YBN PORTAL</div>
+        </div>
+        <div class="nav-menu">
+                           <div class="nav-item" id="google_translate_element" style="margin-right: 15px; display: inline-block;"></div>
+
+            <a href="{% url 'owner_dashboard' landlord.id %}" class="nav-item {% block nav_dash %}{% endblock %}"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
+            <a href="{% url 'owner_properties' landlord.id %}" class="nav-item {% block nav_assets %}{% endblock %}"><i class="fa-solid fa-building"></i> Asset Management</a>
+            <a href="{% url 'owner_view_properties' landlord.id %}" class="nav-item {% block nav_view_assets %}{% endblock %}"><i class="fa-solid fa-eye"></i> View Properties</a>
+            <a href="{% url 'owner_tenant_details' landlord.id %}" class="nav-item {% block nav_tenants %}{% endblock %}"><i class="fa-solid fa-person"></i> Tenant Directory</a>
+            <a href="{% url 'owner_vault' landlord.id %}" class="nav-item {% block nav_vault %}{% endblock %}"><i class="fa-solid fa-shield-halved"></i> Digital Vault</a>
+            <a href="{% url 'owner_drive' landlord.id %}" class="nav-item {% block nav_drive %}{% endblock %}"><i class="fa-solid fa-cloud"></i> Owner Drive</a>
+       <a href="{% url 'owner_approvals' landlord.id %}" class="nav-item {% block nav_approvals %}{% endblock %}"><i class="fa-solid fa-stamp"></i> Approvals</a>
+                        <a href="{% url 'owner_reports' landlord.id %}" class="nav-item {% block nav_owner_reports %}{% endblock %}"><i class="fa-solid fa-gear"></i> Reports</a>
+
+                  <a href="{% url 'logout' %}" class="nav-item"><i class="fa-danger fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
+
+        </div>
+    </div>
+
+    <div class="main-wrapper">
+        <div class="header">
+            <button class="mobile-menu-btn" onclick="toggleSidebar()">
+                <i class="fa-solid fa-bars"></i>
+            </button>
+            <div style="flex: 1;"></div>
+            <div class="user-profile">
+
+
+
+
+
+
+
+    <span>{{ landlord.name }}</span>
+    <div class="avatar">{{ landlord.name|make_list|first }}</div>
+</div>
+
+        </div>
+
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('active');
+            document.getElementById('sidebarOverlay').classList.toggle('active');
+        }
+
+// Smart Back-Button Handling: Force a reload if loaded from the browser's history cache
+window.addEventListener('pageshow', function (event) {
+    if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+        window.location.reload();
+    }
+});
+
+
+// Toggle Notification Dropdown Box
+const bellBtn = document.getElementById('notificationBell');
+const dropdownBox = document.getElementById('notificationDropdown');
+if (bellBtn && dropdownBox) {
+    bellBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        dropdownBox.style.display = dropdownBox.style.display === 'none' ? 'block' : 'none';
+    });
+    document.addEventListener('click', function() {
+        dropdownBox.style.display = 'none';
+    });
+}
+    </script>
+    {% block extra_js %}{% endblock %}
+
+
+
+
+
+
+
+<script type="text/javascript">
+function googleTranslateElementInit() {
+    new google.translate.TranslateElement({
+        pageLanguage: 'en',
+        includedLanguages: 'en,ar', // Only English and Arabic
+        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+        autoDisplay: false
+    }, 'google_translate_element');
+}
+
+
+// Google's script aggressively applies a 'top: 40px' to the body tag.
+    // This observer watches the body tag and instantly removes that styling if Google tries to add it.
+    const bodyObserver = new MutationObserver(function(mutations) {
+        mutations.forEach(function(mutation) {
+            if (mutation.attributeName === "style") {
+                if (document.body.style.top === "40px" || document.body.style.top === "39px") {
+                    document.body.style.top = "0px";
+                }
+            }
+        });
+    });
+
+    // Start watching the body tag for style changes
+    bodyObserver.observe(document.body, { attributes: true });
+</script>
+<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
+<!-- Optional CSS fix in case the Google styling messes up your header height -->
+<style>
+    .goog-te-gadget-simple {
+        border-radius: 6px !important;
+        padding: 4px 8px !important;
+        border: 1px solid var(--border-light) !important;
+    }
+    .goog-te-banner-frame {
+        display: none !important;
+    }
+    body {
+        top: 0px !important;
+    }
+
+
+
+
+
+    .goog-te-banner-frame.skiptranslate {
+        display: none !important;
+    }
+    /* Hide the new banner class (Google updated this recently) */
+    .VIpgJd-ZVi9od-ORHb-OEVmcd {
+        display: none !important;
+    }
+    /* Hide the iframe wrapper completely */
+    .skiptranslate > iframe {
+        display: none !important;
+        visibility: hidden !important;
+    }
+    /* Force body and html back to the top */
+    html, body {
+        top: 0px !important;
+        margin-top: 0px !important;
+        position: static !important;
+    }
+    /* Hide tooltips */
+    .goog-tooltip {
+        display: none !important;
+    }
+    .goog-tooltip:hover {
+        display: none !important;
+    }
+    .goog-text-highlight {
+        background-color: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+</style>
+
+</body>
+</html>
+

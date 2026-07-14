@@ -1,0 +1,175 @@
+{% extends 'realestate/base.html' %}
+{% block title %}Owner Drive{% endblock %}
+{% block nav_drive %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .controls { display: flex; gap: 15px; margin-bottom: 30px; justify-content: space-between; flex-wrap: wrap;}
+    .btn { padding: 10px 15px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+    .btn-gold { background: var(--primary-gold); color: white; }
+    .btn-dark { background: var(--dark-sidebar); color: white; }
+    
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+    .item-card { background: #fff; padding: 20px; border-radius: 10px; text-align: center; border: 1px solid var(--border-light); position: relative;}
+    .item-icon { font-size: 3rem; margin-bottom: 15px; display: block; color: inherit; text-decoration: none;}
+    .icon-folder { color: #facc15; }
+    .icon-file { color: #3b82f6; }
+    .item-title { font-weight: 600; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; color: var(--text-main); text-decoration: none;}
+    
+    /* Action Dropdown */
+    .action-menu { position: absolute; top: 10px; right: 10px; }
+    .action-menu button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem; }
+    .dropdown-content { display: none; position: absolute; right: 0; background: #fff; box-shadow: 0 4px 6px rgba(0,0,0,0.1); border-radius: 6px; border: 1px solid var(--border-light); overflow: hidden; z-index: 10; text-align: left; min-width: 120px;}
+    .action-menu:hover .dropdown-content { display: block; }
+    .dropdown-content form { margin: 0; }
+    .dropdown-content button, .dropdown-content a { display: block; width: 100%; padding: 10px 15px; background: none; border: none; text-align: left; cursor: pointer; font-size: 0.85rem; color: var(--text-main); }
+    .dropdown-content button:hover { background: #f8fafc; color: var(--danger); }
+    .dropdown-content .rename-btn:hover { color: var(--primary-gold); }
+
+    dialog { margin: auto; padding: 0; border: none; border-radius: 12px; width: 90%; max-width: 500px; box-shadow: 0 20px 25px rgba(0,0,0,0.1); }
+    dialog::backdrop { background: rgba(0,0,0,0.6); }
+    .dialog-header { background: var(--dark-sidebar); color: white; padding: 20px; display: flex; justify-content: space-between; }
+    .close-btn { background: none; border: none; color: var(--primary-gold); font-size: 1.5rem; cursor: pointer; }
+    .dialog-body { padding: 20px; }
+    .form-group { margin-bottom: 15px; }
+    .form-group input { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; box-sizing: border-box; }
+    .submit-btn { width: 100%; background: var(--primary-gold); color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+    
+    .search-bar { display: flex; gap: 10px; max-width: 300px; }
+    .search-bar input { padding: 10px; border: 1px solid var(--border-light); border-radius: 6px; width: 100%;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 20px;">
+    <h2>{% if search_query %}Search Results{% elif current_folder %}{{ current_folder.name }}{% else %}My Drive{% endif %}</h2>
+    {% if current_folder %}
+        <a href="{% if current_folder.parent %}?folder={{ current_folder.parent.id }}{% else %}{% url 'owner_drive' landlord.id %}{% endif %}" style="color: var(--text-muted); text-decoration: none; font-weight: 600;"><i class="fa-solid fa-level-up-alt"></i> Back / Up</a>
+    {% elif search_query %}
+        <a href="{% url 'owner_drive' landlord.id %}" style="color: var(--danger); text-decoration: none; font-weight: 600;">Clear Search</a>
+    {% endif %}
+</div>
+
+<div class="controls">
+    <div style="display: flex; gap: 10px;">
+        <button class="btn btn-dark" onclick="document.getElementById('modal-folder').showModal()"><i class="fa-solid fa-folder-plus"></i> New Folder</button>
+        <button class="btn btn-gold" onclick="document.getElementById('modal-file').showModal()"><i class="fa-solid fa-cloud-arrow-up"></i> Upload</button>
+    </div>
+    <div><br></div>
+    <form class="search-bar" method="GET">
+        <input type="text" name="search" placeholder="Search drive..." value="{{ search_query }}">
+        <button type="submit" class="btn btn-dark"><i class="fa-solid fa-search"></i></button>
+    </form>
+</div>
+ <div><br></div>
+<div class="grid">
+    {% for folder in folders %}
+    <div class="item-card">
+        <div class="action-menu">
+            <button><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <div class="dropdown-content">
+                <a class="rename-btn" onclick="openRenameModal('folder', {{ folder.id }}, '{{ folder.name|escapejs }}')">Rename</a>
+                <form action="{% url 'drive_delete_item' landlord.id 'folder' folder.id %}" method="POST" onsubmit="return confirm('Delete this folder and all contents?');">
+                    {% csrf_token %}
+                    <button type="submit">Delete</button>
+                </form>
+            </div>
+        </div>
+        <a href="?folder={{ folder.id }}" style="text-decoration: none;">
+            <i class="fa-solid fa-folder item-icon icon-folder"></i>
+            <span class="item-title">{{ folder.name }}</span>
+        </a>
+    </div>
+    {% endfor %}
+
+    {% for doc in files %}
+    <div class="item-card">
+        <div class="action-menu">
+            <button><i class="fa-solid fa-ellipsis-vertical"></i></button>
+            <div class="dropdown-content">
+                <a class="rename-btn" onclick="openRenameModal('file', {{ doc.id }}, '{{ doc.title|escapejs }}')">Rename</a>
+                <form action="{% url 'drive_delete_item' landlord.id 'file' doc.id %}" method="POST" onsubmit="return confirm('Delete this file?');">
+                    {% csrf_token %}
+                    <button type="submit">Delete</button>
+                </form>
+            </div>
+        </div>
+        <a href="{{ doc.file.url }}" target="_blank" style="text-decoration: none;">
+            <i class="fa-solid fa-file-pdf item-icon icon-file"></i>
+            <span class="item-title">{{ doc.title }}</span>
+        </a>
+    </div>
+    {% empty %}
+        {% if not folders %}
+        <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 40px;">No items found.</div>
+        {% endif %}
+    {% endfor %}
+</div>
+
+<!-- Rename Modal -->
+<dialog id="modal-rename">
+    <div class="dialog-header">
+        <h2>Rename Item</h2>
+        <button class="close-btn" onclick="document.getElementById('modal-rename').close()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="dialog-body">
+        <form id="rename-form" method="POST">
+            {% csrf_token %}
+            <div class="form-group">
+                <input type="text" name="new_name" id="rename-input" required>
+            </div>
+            <button type="submit" class="submit-btn">Save Name</button>
+        </form>
+    </div>
+</dialog>
+
+<!-- Create Folder Modal -->
+<dialog id="modal-folder">
+    <div class="dialog-header">
+        <h2>Create Folder</h2>
+        <button class="close-btn" onclick="document.getElementById('modal-folder').close()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="dialog-body">
+        <form action="{% url 'drive_create_folder' landlord.id %}" method="POST">
+            {% csrf_token %}
+            {% if current_folder %}<input type="hidden" name="parent_id" value="{{ current_folder.id }}">{% endif %}
+            <div class="form-group">
+                <input type="text" name="folder_name" placeholder="Folder Name" required>
+            </div>
+            <button type="submit" class="submit-btn">Create</button>
+        </form>
+    </div>
+</dialog>
+
+<!-- Upload File Modal -->
+<dialog id="modal-file">
+    <div class="dialog-header">
+        <h2>Upload File</h2>
+        <button class="close-btn" onclick="document.getElementById('modal-file').close()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="dialog-body">
+        <form action="{% url 'drive_upload_file' landlord.id %}" method="POST" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if current_folder %}<input type="hidden" name="folder_id" value="{{ current_folder.id }}">{% endif %}
+            <div class="form-group">
+                <input type="text" name="title" placeholder="Document Title" required>
+            </div>
+            <div class="form-group">
+                <input type="file" name="document" required style="padding: 6px;">
+            </div>
+            <button type="submit" class="submit-btn">Upload</button>
+        </form>
+    </div>
+</dialog>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function openRenameModal(type, id, currentName) {
+        document.getElementById('rename-input').value = currentName;
+        document.getElementById('rename-form').action = `/owner/{{ landlord.id }}/drive/rename/${type}/${id}/`;
+        document.getElementById('modal-rename').showModal();
+    }
+</script>
+{% endblock %}

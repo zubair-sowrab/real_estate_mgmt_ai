@@ -1,0 +1,154 @@
+{% extends 'realestate/base.html' %}
+{% block title %}YBN Portal - Dashboard{% endblock %}
+{% block nav_dash %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-title { font-size: 1.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 5px; }
+    .page-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 25px; }
+
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 25px; }
+    .kpi-card { background: var(--card-bg); padding: 25px; border-radius: 8px; border: 1px solid var(--border-light); position: relative; }
+    .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: var(--primary-gold); border-radius: 8px 8px 0 0; }
+    .kpi-icon { position: absolute; top: 25px; right: 25px; font-size: 1.5rem; color: #f1f5f9; }
+    .kpi-title { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 10px; }
+    .kpi-value { font-size: 2rem; font-weight: 700; color: var(--text-main); margin-bottom: 10px; }
+
+    /* --- ENHANCED RESPONSIVE MICRO-PILLS --- */
+    .micro-stats-container {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 12px;
+        margin-bottom: 25px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .micro-stats-container::-webkit-scrollbar { display: none; }
+
+    .micro-pill {
+        flex: 1; /* Forces pills to stretch evenly on PC */
+        min-width: 140px; /* Triggers swipeable overflow on Mobile */
+        background: var(--card-bg);
+        border: 1px solid var(--border-light);
+        border-radius: 8px;
+        padding: 12px 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .micro-pill .lbl {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+    }
+    .micro-pill .val {
+        font-size: 1.15rem;
+        color: var(--text-main);
+        font-weight: 700;
+    }
+
+    .mp-cleared { border-top: 4px solid var(--success); }
+    .mp-pending { border-top: 4px solid var(--warning); }
+    .mp-replaced { border-top: 4px solid #3b82f6; }
+    .mp-partial { border-top: 4px solid #8b5cf6; }
+    .mp-bounced { border-top: 4px solid var(--danger); }
+    .mp-term { border-top: 4px solid #64748b; }
+
+    .table-container { max-height: 450px; overflow-y: auto; }
+    .card-list { display: flex; flex-direction: column; gap: 10px; }
+    .card-item { background: var(--card-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
+    .card-left { display: flex; flex-direction: column; gap: 4px; }
+    .card-right { text-align: right; }
+    .unit-ref { font-size: 0.8rem; color: var(--text-muted); }
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+    .badge.success { background: var(--success-bg); color: var(--success); }
+    .badge.warning { background: var(--warning-bg); color: var(--warning); }
+    .badge.danger { background: var(--danger-bg); color: var(--danger); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 25px;">
+    <h1 class="page-title">Executive Dashboard</h1>
+    <p class="page-subtitle">Live KPI Overview</p>
+</div>
+
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <i class="fa-solid fa-building kpi-icon"></i>
+        <div class="kpi-title">Total Portfolio</div>
+        <div class="kpi-value">{{ total_units }} <span style="font-size: 1rem;">Units</span></div>
+    </div>
+    <div class="kpi-card">
+        <i class="fa-solid fa-circle-check kpi-icon"></i>
+        <div class="kpi-title">Occupancy Rate</div>
+        <div class="kpi-value">{{ occupancy_rate }}%</div>
+    </div>
+</div>
+
+<h3 style="margin-bottom: 10px; font-size: 1rem; color: #64748b;">This Month's Collections Breakdown</h3>
+
+<div class="micro-stats-container">
+    <div class="micro-pill mp-cleared"><span class="lbl">Cleared</span><span class="val">AED {{ kpi_sums.cleared|floatformat:"0g" }}</span></div>
+    <div class="micro-pill mp-pending"><span class="lbl">Pending PDC</span><span class="val">AED {{ kpi_sums.pending|floatformat:"0g" }}</span></div>
+    <div class="micro-pill mp-replaced"><span class="lbl">Replaced</span><span class="val">AED {{ kpi_sums.replaced|floatformat:"0g" }}</span></div>
+    <div class="micro-pill mp-partial"><span class="lbl">Replaced/Partial</span><span class="val">AED {{ kpi_sums.partial|floatformat:"0g" }}</span></div>
+    <div class="micro-pill mp-bounced"><span class="lbl">Bounced</span><span class="val">AED {{ kpi_sums.bounced|floatformat:"0g" }}</span></div>
+    <div class="micro-pill mp-term"><span class="lbl">Terminated</span><span class="val">AED {{ kpi_sums.terminated|floatformat:"0g" }}</span></div>
+</div>
+
+<h3 style="margin-bottom: 15px;"><span style="color:var(--danger)">🔴</span> Live Collections Ledger</h3>
+<div class="table-container">
+    <div class="card-list">
+        {% for txn in recent_transactions %}
+        <div class="card-item">
+            <div class="card-left">
+                <strong>{{ txn.contract.tenant.full_name }}</strong>
+                <span class="unit-ref">{{ txn.contract.unit.property_asset.name }} — Unit {{ txn.contract.unit.unit_number }}</span>
+                <span class="unit-ref">
+                    {% if txn.payment_type == 'Cheque' %}
+                        <i class="fa-solid fa-money-check" style="margin-right: 4px;"></i> CHQ: {{ txn.cheque_number }}
+                    {% else %}
+                        <i class="fa-solid fa-money-bill-transfer" style="margin-right: 4px;"></i> Cash / Transfer
+                    {% endif %}
+                    <span style="margin: 0 6px; color: var(--border-light);">|</span>
+                    <i class="fa-regular fa-calendar" style="margin-right: 4px;"></i> {{ txn.due_date|date:"M d, Y" }}
+                </span>
+            </div>
+            <div class="card-right">
+                <strong>AED {{ txn.amount|floatformat:"2g" }}</strong>
+                {% if txn.received_amount > 0 and txn.pending_balance > 0 %}
+                <div style="font-size: 0.8rem; margin-top: 4px; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-light);">
+                    <span style="color: var(--success);">Rcd: {{ txn.received_amount|floatformat:"2g" }}</span> |
+                    <span style="color: var(--danger);">Bal: {{ txn.pending_balance|floatformat:"2g" }}</span>
+                </div>
+                {% endif %}
+                <div style="margin-top:4px;">
+                    {% if txn.status == 'Cleared' %}
+                        <span class="badge success">Cleared</span>
+                    {% elif txn.status == 'Pending PDC' %}
+                        <span class="badge warning">Pending PDC</span>
+                    {% elif txn.status == 'Replaced/Partial' %}
+                        <span class="badge warning" style="background: #e2e8f0; color: #475569;">Replaced/Partial</span>
+                    {% elif txn.status == 'Replaced' %}
+                        <span class="badge warning" style="background: #e2e8f0; color: #475569;">Replaced</span>
+                    {% elif txn.status == 'Terminated PDC' %}
+                        <span class="badge danger" style="background: #cbd5e1; color: #334155;">Terminated PDC</span>
+                    {% elif txn.status == 'Bounced' %}
+                        <span class="badge danger">Bounced</span>
+                    {% else %}
+                        <span class="badge" style="background: #e2e8f0; color: #475569;">{{ txn.status }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div style="text-align: center; color: var(--text-muted);">No records found.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

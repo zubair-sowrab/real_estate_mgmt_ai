@@ -1,0 +1,131 @@
+{% extends 'realestate/base.html' %}
+{% block title %}Tenant Directory{% endblock %}
+{% block nav_tenants %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.5px; }
+    .page-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 25px; font-weight: 500; }
+
+    /* Filter Panel Styling */
+    .filter-section { background: var(--card-bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border-light); margin-bottom: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+    .filter-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+    .form-control { padding: 10px 15px; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; color: var(--text-main); font-family: inherit; outline: none; transition: border-color 0.2s; }
+    .form-control:focus { border-color: var(--primary-gold); }
+
+    .btn-filter { background: var(--dark-sidebar); color: #fff; padding: 10px 20px; border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; height: 40px; }
+    .btn-filter:hover { background: var(--primary-gold); color: var(--dark-sidebar); }
+    .btn-clear { background: #f8fafc; color: var(--text-muted); padding: 10px 20px; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; height: 40px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .btn-clear:hover { background: var(--border-light); }
+
+    /* Tenant List Styling */
+    .tenant-list { display: flex; flex-direction: column; gap: 10px; }
+    .tenant-card { background: #fff; padding: 20px; border-radius: 8px; border: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: transform 0.2s; }
+    .tenant-card:hover { transform: translateY(-2px); border-color: var(--primary-gold); }
+    .action-btn { background: var(--dark-sidebar); color: white; border: none; padding: 10px 15px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .action-btn:hover { background: var(--primary-gold); color: var(--dark-sidebar); }
+
+    /* Modal Styling */
+    dialog { margin: auto; padding: 0; border: none; border-radius: 12px; width: 90%; max-width: 800px; box-shadow: 0 20px 25px rgba(0,0,0,0.1); }
+    dialog::backdrop { background: rgba(0,0,0,0.6); }
+    .dialog-header { background: var(--dark-sidebar); color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
+    .close-btn { background: none; border: none; color: var(--primary-gold); font-size: 1.5rem; cursor: pointer; }
+    .dialog-body { padding: 20px; max-height: 70vh; overflow-y: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Tenant Directory</h1>
+<p class="page-subtitle">Search and manage tenant profiles across your portfolio.</p>
+
+<!-- Filter Panel -->
+<div class="filter-section">
+    <form method="GET" class="filter-form">
+        <div class="form-group">
+            <label>Search Name/Phone</label>
+            <input type="text" name="search" class="form-control" placeholder="Tenant name, phone, or EID..." value="{{ filters.search }}">
+        </div>
+        <div class="form-group">
+            <label>Property</label>
+            <select name="property" class="form-control">
+                <option value="">All Properties</option>
+                {% for prop in properties %}
+                    <option value="{{ prop.id }}" {% if filters.property == prop.id %}selected{% endif %}>{{ prop.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Unit Number</label>
+            <input type="text" name="unit" class="form-control" placeholder="e.g. 101" value="{{ filters.unit }}">
+        </div>
+        <div class="form-group">
+            <label>Lease Status</label>
+            <select name="lease_status" class="form-control">
+                <option value="">All Tenants</option>
+                <option value="Active" {% if filters.lease_status == 'Active' %}selected{% endif %}>Active Lease</option>
+                <option value="Expired" {% if filters.lease_status == 'Expired' %}selected{% endif %}>Past/Expired Lease</option>
+            </select>
+        </div>
+        <div class="form-group" style="display: flex; flex-direction: row; gap: 10px;">
+            <button type="submit" class="btn-filter" style="flex: 1;"><i class="fa-solid fa-filter"></i> Filter</button>
+            <a href="{% url 'owner_tenant_details' landlord.id %}" class="btn-clear" style="flex: 1;"><i class="fa-solid fa-rotate-right"></i></a>
+        </div>
+    </form>
+</div>
+
+<!-- Tenant List -->
+<div class="tenant-list">
+    {% for data in tenant_data %}
+    <div class="tenant-card">
+        <div>
+            <strong style="font-size: 1.15rem; display: block; margin-bottom: 6px; color: var(--text-main);">{{ data.tenant.full_name }}</strong>
+            <span style="color: var(--text-muted); font-size: 0.9rem;">
+                <i class="fa-solid fa-phone" style="margin-right: 4px;"></i> {{ data.tenant.phone }}
+                <span style="margin: 0 8px; color: var(--border-light);">|</span>
+                ID: {{ data.tenant.emirates_id|default:"N/A" }}
+            </span>
+        </div>
+        <button class="action-btn" onclick="document.getElementById('tenant-modal-{{ data.tenant.id }}').showModal()">View Profile</button>
+    </div>
+    {% empty %}
+    <div style="padding: 40px; text-align: center; color: var(--text-muted); background: var(--card-bg); border-radius: 8px; border: 1px dashed var(--border-light);">
+        <i class="fa-solid fa-users-slash" style="font-size: 2rem; margin-bottom: 10px;"></i>
+        <p>No tenants matched your filter criteria.</p>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Modals -->
+{% for data in tenant_data %}
+<dialog id="tenant-modal-{{ data.tenant.id }}">
+    <div class="dialog-header">
+        <h2 style="font-size: 1.3rem;">{{ data.tenant.full_name }}</h2>
+        <button class="close-btn" onclick="document.getElementById('tenant-modal-{{ data.tenant.id }}').close()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="dialog-body">
+        <h3 style="margin-bottom: 15px; font-size: 1.1rem; color: var(--text-main); border-bottom: 1px solid var(--border-light); padding-bottom: 5px;">Lease History</h3>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <tr style="background: #f8fafc;">
+                <th style="padding: 12px; text-align: left; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Unit & Dates</th>
+                <th style="padding: 12px; text-align: left; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Amount</th>
+                <th style="padding: 12px; text-align: left; color: var(--text-muted); font-size: 0.8rem; text-transform: uppercase;">Status</th>
+            </tr>
+            {% for contract in data.contracts %}
+            <tr style="border-bottom: 1px solid var(--border-light);">
+                <td style="padding: 12px;">
+                    <strong style="color: var(--text-main);">{{ contract.unit.property_asset.name }} - Unit {{ contract.unit.unit_number }}</strong><br>
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">{{ contract.start_date|date:"M d, Y" }} to {{ contract.end_date|date:"M d, Y" }}</span>
+                </td>
+                <td style="padding: 12px; font-weight: 500;">AED {{ contract.total_amount|floatformat:"2g" }}</td>
+                <td style="padding: 12px; font-weight: 600; color: {% if contract.status == 'Active' %}var(--success){% else %}var(--text-muted){% endif %};">
+                    {{ contract.status }}
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</dialog>
+{% endfor %}
+{% endblock %}

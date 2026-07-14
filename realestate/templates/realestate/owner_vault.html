@@ -1,0 +1,212 @@
+{% extends 'realestate/base.html' %}
+{% block title %}Digital Vault{% endblock %}
+{% block nav_vault %}active{% endblock %}
+
+{% block extra_css %}
+<style>
+    .page-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.5px; }
+    .page-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 25px; font-weight: 500; }
+
+    /* --- NEW MICRO-PILL SWIPER (EXTREMELY COMPACT) --- */
+    .micro-stats-container {
+        display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 25px;
+        -webkit-overflow-scrolling: touch; scrollbar-width: none;
+    }
+    /* --- ENHANCED RESPONSIVE MICRO-PILLS --- */
+    .micro-stats-container {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 12px;
+        margin-bottom: 25px;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+    .micro-stats-container::-webkit-scrollbar { display: none; }
+
+    .micro-pill {
+        flex: 1; /* Forces pills to stretch evenly on PC */
+        min-width: 140px; /* Triggers swipeable overflow on Mobile */
+        background: var(--card-bg);
+        border: 1px solid var(--border-light);
+        border-radius: 8px;
+        padding: 12px 15px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .micro-pill .lbl {
+        font-size: 0.7rem;
+        color: var(--text-muted);
+        font-weight: 700;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+    }
+    .micro-pill .val {
+        font-size: 1.15rem;
+        color: var(--text-main);
+        font-weight: 700;
+    }
+
+    .mp-cleared { border-top: 4px solid var(--success); }
+    .mp-pending { border-top: 4px solid var(--warning); }
+    .mp-replaced { border-top: 4px solid #3b82f6; }
+    .mp-partial { border-top: 4px solid #8b5cf6; }
+    .mp-bounced { border-top: 4px solid var(--danger); }
+    .mp-term { border-top: 4px solid #64748b; }
+
+    /* Filter Panel Toggle */
+    .filter-toggle { width: 100%; padding: 12px; background: var(--dark-sidebar); color: #fff; border: none; border-radius: 6px; font-weight: 600; margin-bottom: 20px; cursor: pointer; }
+    .filter-section { background: var(--card-bg); padding: 20px; border-radius: 8px; border: 1px solid var(--border-light); margin-bottom: 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+
+    .filter-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; align-items: end; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+    .form-control { padding: 10px 15px; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; color: var(--text-main); font-family: inherit; outline: none; transition: border-color 0.2s; }
+    .form-control:focus { border-color: var(--primary-gold); }
+
+    .btn-filter { background: var(--dark-sidebar); color: #fff; padding: 10px 20px; border: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; transition: background 0.2s; height: 40px; }
+    .btn-filter:hover { background: var(--primary-gold); color: var(--dark-sidebar); }
+    .btn-clear { background: #f8fafc; color: var(--text-muted); padding: 10px 20px; border: 1px solid var(--border-light); border-radius: 6px; font-size: 0.9rem; font-weight: 600; cursor: pointer; text-align: center; text-decoration: none; height: 40px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .btn-clear:hover { background: var(--border-light); }
+
+    .card-list { display: flex; flex-direction: column; gap: 10px; }
+    .card-item { background: var(--card-bg); padding: 15px; border-radius: 8px; border: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
+    .card-left { display: flex; flex-direction: column; gap: 4px; }
+    .card-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+
+    .unit-ref { font-size: 0.8rem; color: var(--text-muted); }
+    .badge { padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
+    .badge.success { background: var(--success-bg); color: var(--success); }
+    .badge.warning { background: var(--warning-bg); color: var(--warning); }
+    .badge.danger { background: var(--danger-bg); color: var(--danger); }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="page-title">Digital Vault</h1>
+<p class="page-subtitle">Comprehensive ledger of all post-dated cheques and cleared transfers.</p>
+
+<button class="filter-toggle" onclick="toggleFilters()">
+    <i class="fa-solid fa-sliders"></i> Filter & Sort
+</button>
+
+<div class="filter-section" id="filterSection" style="display: {% if filters.search or filters.property or filters.status or filters.date_from %}block{% else %}none{% endif %};">
+    <form method="GET" class="filter-form">
+        <div class="form-group">
+            <label>Search</label>
+            <input type="text" name="search" class="form-control" placeholder="Tenant or Cheque No." value="{{ filters.search }}">
+        </div>
+        <div class="form-group">
+            <label>Property</label>
+            <select name="property" class="form-control">
+                <option value="">All Properties</option>
+                {% for prop in properties %}
+                    <option value="{{ prop.id }}" {% if filters.property == prop.id %}selected{% endif %}>{{ prop.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Status</label>
+            <select name="status" class="form-control">
+                <option value="">All Statuses</option>
+                <option value="Cleared" {% if filters.status == 'Cleared' %}selected{% endif %}>Cleared</option>
+                <option value="Pending PDC" {% if filters.status == 'Pending PDC' %}selected{% endif %}>Pending PDC</option>
+                <option value="Bounced" {% if filters.status == 'Bounced' %}selected{% endif %}>Bounced</option>
+                <option value="Replaced/Partial" {% if filters.status == 'Replaced/Partial' %}selected{% endif %}>Replaced/Partial</option>
+                <option value="Replaced" {% if filters.status == 'Replaced' %}selected{% endif %}>Replaced</option>
+                <option value="Terminated PDC" {% if filters.status == 'Terminated PDC' %}selected{% endif %}>Terminated PDC</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Date From</label>
+            <input type="date" name="date_from" class="form-control" value="{{ filters.date_from }}">
+        </div>
+        <div class="form-group">
+            <label>Date To</label>
+            <input type="date" name="date_to" class="form-control" value="{{ filters.date_to }}">
+        </div>
+        <div class="form-group">
+            <label>Sort By</label>
+            <select name="sort" class="form-control">
+                <option value="-id" {% if filters.sort == '-id' %}selected{% endif %}>Latest Added First</option>
+                <option value="id_asc" {% if filters.sort == 'id_asc' %}selected{% endif %}>Oldest Added First</option>
+                <option value="-due_date" {% if filters.sort == '-due_date' %}selected{% endif %}>Latest Date</option>
+                <option value="date_asc" {% if filters.sort == 'date_asc' %}selected{% endif %}>Oldest Date</option>
+                <option value="-amount" {% if filters.sort == '-amount' %}selected{% endif %}>Amount (High to Low)</option>
+                <option value="amount_asc" {% if filters.sort == 'amount_asc' %}selected{% endif %}>Amount (Low to High)</option>
+            </select>
+        </div>
+        <div class="form-group" style="display: flex; flex-direction: row; gap: 10px;">
+            <button type="submit" class="btn-filter" style="flex: 1;"><i class="fa-solid fa-filter"></i> Apply</button>
+            <a href="{% url 'owner_vault' landlord.id %}" class="btn-clear" style="flex: 1;"><i class="fa-solid fa-rotate-right"></i></a>
+        </div>
+    </form>
+</div>
+
+<div class="micro-stats-container">
+    <div class="micro-pill mp-cleared"><span class="lbl">Cleared</span><span class="val">AED {{ vault_sums.cleared|floatformat:"2g" }}</span></div>
+    <div class="micro-pill mp-pending"><span class="lbl">Pending PDC</span><span class="val">AED {{ vault_sums.pending|floatformat:"2g" }}</span></div>
+    <div class="micro-pill mp-replaced"><span class="lbl">Replaced</span><span class="val">AED {{ vault_sums.replaced|floatformat:"2g" }}</span></div>
+    <div class="micro-pill mp-partial"><span class="lbl">Replaced/Partial</span><span class="val">AED {{ vault_sums.partial|floatformat:"2g" }}</span></div>
+    <div class="micro-pill mp-bounced"><span class="lbl">Bounced</span><span class="val">AED {{ vault_sums.bounced|floatformat:"2g" }}</span></div>
+    <div class="micro-pill mp-term"><span class="lbl">Terminated</span><span class="val">AED {{ vault_sums.terminated|floatformat:"2g" }}</span></div>
+</div>
+
+<div class="card-list">
+    {% for txn in transactions %}
+    <div class="card-item">
+        <div class="card-left">
+            <strong>{{ txn.contract.tenant.full_name }}</strong>
+            <span class="unit-ref">{{ txn.contract.unit.property_asset.name }} — Unit {{ txn.contract.unit.unit_number }}</span>
+            <span class="unit-ref">
+                {% if txn.payment_type == 'Cheque' %}<i class="fa-solid fa-money-check"></i> CHQ: {{ txn.cheque_number }}
+                {% else %}<i class="fa-solid fa-building-columns"></i> Transfer{% endif %}
+                | <i class="fa-regular fa-calendar"></i> {{ txn.due_date|date:"M d, Y" }}
+            </span>
+        </div>
+        <div class="card-right">
+            <strong>AED {{ txn.amount|floatformat:"2g" }}</strong>
+            <div>
+                {% if txn.received_amount > 0 and txn.pending_balance > 0 %}
+                <div style="font-size: 0.8rem; margin-top: 4px; margin-bottom: 6px; background: #f8fafc; padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-light);">
+                    <span style="color: var(--success);">Rcd: {{ txn.received_amount|floatformat:"2g" }}</span> |
+                    <span style="color: var(--danger);">Bal: {{ txn.pending_balance|floatformat:"2g" }}</span>
+                </div>
+                {% endif %}
+
+                {% if txn.status == 'Cleared' %}
+                    <span class="badge success">Cleared</span>
+                {% elif txn.status == 'Pending PDC' %}
+                    <span class="badge warning">Pending PDC</span>
+                {% elif txn.status == 'Replaced/Partial' %}
+                    <span class="badge warning" style="background: #e2e8f0; color: #475569;">Replaced/Partial</span>
+                {% elif txn.status == 'Replaced' %}
+                    <span class="badge warning" style="background: #e2e8f0; color: #475569;">Replaced</span>
+                {% elif txn.status == 'Terminated PDC' %}
+                    <span class="badge danger" style="background: #cbd5e1; color: #334155;">Terminated PDC</span>
+                {% elif txn.status == 'Bounced' %}
+                    <span class="badge danger">Bounced</span>
+                {% else %}
+                    <span class="badge" style="background: #e2e8f0; color: #475569;">{{ txn.status }}</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% empty %}
+    <div style="text-align: center; padding: 40px; color: var(--text-muted);">
+        No transactions match your filter criteria.
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function toggleFilters() {
+        const section = document.getElementById('filterSection');
+        section.style.display = (section.style.display === 'none') ? 'block' : 'none';
+    }
+</script>
+{% endblock %}
