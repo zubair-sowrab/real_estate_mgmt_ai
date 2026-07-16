@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, Prefetch
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
@@ -157,7 +157,7 @@ def owner_dashboard(request, landlord_id):
 
     properties = Property.objects.filter(owner=landlord)
     total_units = Unit.objects.filter(property_asset__in=properties).count()
-    occupied_units = Unit.objects.filter(property_asset__in=properties, contracts__status='Active').distinct().count()
+    occupied_units = Unit.objects.filter(property_asset__in=properties, status='Occupied').count()
     occupancy_rate = int((occupied_units / total_units) * 100) if total_units > 0 else 0
 
     today = timezone.now().date()
@@ -337,7 +337,7 @@ def owner_view_properties(request, landlord_id):
 
     for p in properties:
         total_units = Unit.objects.filter(property_asset=p).count()
-        occupied_units = Unit.objects.filter(property_asset=p, contracts__status='Active').distinct().count()
+        occupied_units = Unit.objects.filter(property_asset=p, status='Occupied').count()
         occupancy_rate = int((occupied_units / total_units) * 100) if total_units > 0 else 0
 
         active_contracts = Contract.objects.filter(unit__property_asset=p, status='Active').select_related('tenant',
@@ -930,3 +930,25 @@ def delete_property_document(request, landlord_id, doc_id):
         doc.delete()
 
     return redirect('owner_view_properties', landlord_id=landlord_id)
+
+
+def owner_occupancy_status(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+
+    # 1. Create a filter that ONLY applies to the visual UI
+    # It requires a hyphen (-) and excludes commas (,)
+    clean_units_filter = Unit.objects.filter(
+        unit_number__contains='-',
+    ).exclude(
+        unit_number__contains=','
+    )
+
+    # 2. Apply the visual filter using Prefetch
+    properties = Property.objects.filter(owner=landlord).prefetch_related(
+        Prefetch('units', queryset=clean_units_filter)
+    )
+
+    return render(request, 'realestate/occupancy_status.html', {
+        'landlord': landlord,
+        'properties': properties
+    })
