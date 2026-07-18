@@ -82,12 +82,10 @@ class Tenant(models.Model):
 # ------------------------------------------------------------------------
 class Contract(models.Model):
     STATUS_CHOICES = [
-        ('Cleared', 'Cleared'),
-        ('Pending PDC', 'Pending PDC'),
-        ('Bounced', 'Bounced'),
-        ('Replaced/Partial', 'Replaced/Partial'),
-        ('Replaced', 'Replaced'),
-        ('Terminated PDC', 'Terminated PDC'),
+        ('Active', 'Active'),
+        ('Expired (Holdover)', 'Expired (Holdover)'),
+        ('Terminated', 'Terminated'),
+        ('Closed', 'Closed'),
     ]
 
     pact_contract_id = models.CharField(max_length=100, unique=True)

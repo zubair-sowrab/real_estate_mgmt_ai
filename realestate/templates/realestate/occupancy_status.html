@@ -4,109 +4,31 @@
 
 {% block extra_css %}
 <style>
-    .page-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin-bottom: 30px;
-        color: var(--text-main);
-    }
+    .page-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 30px; color: var(--text-main); }
+    .property-card { background: var(--card-bg); border: 1px solid var(--border-light); border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
+    .property-header { padding: 20px 25px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: var(--card-bg); transition: background 0.2s ease; }
+    .property-header:hover { background: var(--app-bg); }
+    .property-title { font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+    .property-stats { font-size: 0.9rem; color: var(--text-muted); display: flex; align-items: center; gap: 20px; }
+    .toggle-icon { transition: transform 0.3s ease; }
+    .property-card.active .toggle-icon { transform: rotate(180deg); }
+    .units-container { display: none; padding: 20px 25px; border-top: 1px solid var(--border-light); background: #fafafa; }
+    .property-card.active .units-container { display: block; }
+    .units-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+    .unit-box { background: var(--card-bg); border: 1px solid var(--border-light); padding: 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 3px rgba(0,0,0,0.02); }
+    .unit-name { font-weight: 600; color: var(--text-main); font-size: 0.95rem; }
+    .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+    .badge-vacant { background: var(--danger-bg); color: var(--danger); text-transform: uppercase; }
 
-    .property-card {
-        background: var(--card-bg);
-        border: 1px solid var(--border-light);
-        border-radius: 8px;
-        margin-bottom: 15px;
-        overflow: hidden;
-    }
-
-    .property-header {
-        padding: 20px 25px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        cursor: pointer;
-        background: var(--card-bg);
-        transition: background 0.2s ease;
-    }
-
-    .property-header:hover {
-        background: var(--app-bg);
-    }
-
-    .property-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .property-stats {
-        font-size: 0.9rem;
-        color: var(--text-muted);
-        display: flex;
-        align-items: center;
-        gap: 20px;
-    }
-
-    .toggle-icon {
-        transition: transform 0.3s ease;
-    }
-
-    .property-card.active .toggle-icon {
-        transform: rotate(180deg);
-    }
-
-    .units-container {
-        display: none;
-        padding: 20px 25px;
-        border-top: 1px solid var(--border-light);
-        background: #fafafa;
-    }
-
-    .property-card.active .units-container {
-        display: block;
-    }
-
-    .units-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 15px;
-    }
-
-    .unit-box {
-        background: var(--card-bg);
-        border: 1px solid var(--border-light);
-        padding: 15px;
-        border-radius: 6px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
-    }
-
-    .unit-name {
-        font-weight: 600;
-        color: var(--text-main);
-        font-size: 0.95rem;
-    }
-
-    .status-badge {
-        padding: 4px 10px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-    }
-
+    /* Custom styling to fit Tenant Names */
     .badge-occupied {
-        background: var(--success-bg);
-        color: var(--success);
-    }
-
-    .badge-vacant {
-        background: var(--danger-bg);
-        color: var(--danger);
+        background: #e0f2fe;
+        color: #0284c7;
+        text-transform: capitalize;
+        max-width: 140px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 </style>
 {% endblock %}
@@ -115,34 +37,36 @@
 <h1 class="page-title">Live Occupancy Status</h1>
 
 <div class="occupancy-list">
-    {% for property in properties %}
+    {% for data in property_data %}
     <div class="property-card" onclick="toggleProperty(this)">
         <div class="property-header">
             <div class="property-title">
                 <i class="fa-solid fa-building" style="color: var(--primary-gold);"></i>
-                {{ property.name }}
+                {{ data.property.name }}
             </div>
             <div class="property-stats">
-                <span>Total Units: {{ property.units.all|length }}</span>
+                <span>Total Units: {{ data.total_count }}</span>
                 <i class="fa-solid fa-chevron-down toggle-icon"></i>
             </div>
         </div>
 
         <div class="units-container">
             <div class="units-grid">
-                {% for unit in property.units.all %}
+                {% for eu in data.expanded_units %}
                 <div class="unit-box">
-                    <span class="unit-name">{{ unit.unit_number }}</span>
+                    <span class="unit-name">{{ eu.unit_number }}</span>
 
-                    {% if unit.status == 'Occupied' %}
-                        <span class="status-badge badge-occupied"><i class="fa-solid fa-check"></i> Occupied</span>
+                    {% if eu.is_occupied %}
+                        <span class="status-badge badge-occupied" title="{{ eu.tenant.full_name }}">
+                            <i class="fa-solid fa-user"></i> {{ eu.tenant.full_name|truncatechars:18 }}
+                        </span>
                     {% else %}
                         <span class="status-badge badge-vacant"><i class="fa-solid fa-xmark"></i> Vacant</span>
                     {% endif %}
                 </div>
                 {% empty %}
                 <div style="grid-column: 1 / -1; color: var(--text-muted);">
-                    No units mapped for this property yet.
+                    No valid units mapped for this property yet.
                 </div>
                 {% endfor %}
             </div>
@@ -154,11 +78,8 @@
 
 {% block extra_js %}
 <script>
-    // Handles the accordion click effect for buildings
     function toggleProperty(element) {
-        // Prevent closing if clicking directly inside the units grid
         if(event.target.closest('.units-container')) return;
-
         element.classList.toggle('active');
     }
 </script>

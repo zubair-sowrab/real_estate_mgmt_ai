@@ -4,6 +4,7 @@
 
 {% block extra_css %}
 <style>
+    .badge.holdover { background: #fee2e2; color: #dc2626; border: 1px solid #f87171; }
     .page-title { font-size: 1.8rem; font-weight: 700; margin-bottom: 5px; letter-spacing: -0.5px; }
     .page-subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px; font-weight: 500; }
     
@@ -54,24 +55,28 @@
                     <th class="text-right">Financials & Status</th>
                 </tr>
             </thead>
-            <tbody>
-                {% for contract in active_contracts %}
+           <tbody>
+                {% for eu in vacant_units %}
                 <tr>
                     <td>
-                        <strong>{{ contract.unit.property_asset.name }} - Unit {{ contract.unit.unit_number }}</strong><br>
-                        <span style="color: var(--text-muted); font-size: 0.85rem;"><i class="fa-regular fa-user"></i> {{ contract.tenant.full_name }}</span>
+                        <strong>{{ eu.original_unit.property_asset.name }}</strong><br>
+                        <span style="color: var(--text-muted); font-size: 0.85rem;">Unit {{ eu.unit_number }}</span>
                     </td>
                     <td>
-                        {{ contract.start_date|date:"M d, Y" }} <br>
-                        <span style="color: var(--text-muted); font-size: 0.85rem;">to {{ contract.end_date|date:"M d, Y" }}</span>
+                        {{ eu.unit_type }}<br>
+                        <span class="badge danger" style="margin-top: 4px;">Vacant</span>
                     </td>
                     <td class="text-right">
                         <strong>AED {{ contract.total_amount|floatformat:"2g" }}</strong><br>
-                        <span class="badge success">{{ contract.status }}</span>
+                        {% if contract.status == 'Expired (Holdover)' %}
+                            <span class="badge holdover">Up For Renewal</span>
+                        {% else %}
+                            <span class="badge success">{{ contract.status }}</span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No active contracts found.</td></tr>
+                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Portfolio is fully occupied.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
