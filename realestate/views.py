@@ -19,10 +19,6 @@ hidden_accounts = ['Landlord (ID: 1)', 'YBN General Portfolio', 'Accounts', 'Out
 # THE DYNAMIC OCCUPANCY ENGINE
 # ==========================================
 def get_property_expanded_stats(property_obj):
-    """
-    Dynamically explodes comma-separated unit strings into individual units,
-    deduplicates them, and assigns occupancy ONLY if a contract is not Terminated or Closed.
-    """
     units = property_obj.units.all()
     expanded_dict = {}
 
@@ -30,15 +26,15 @@ def get_property_expanded_stats(property_obj):
         if '-' not in u.unit_number:
             continue
 
-        # Ground Truth Occupancy: Is there a contract that is NOT Terminated/Closed?
-        active_contract = None
-        for c in u.contracts.all():
-            if c.status not in ['Terminated', 'Closed']:
-                active_contract = c
-                break
+        # --- THE FIX: ONLY check the newest contract to prevent historical ghosting ---
+        latest_contract = u.contracts.order_by('-start_date').first()
 
-        is_occupied = active_contract is not None
-        tenant = active_contract.tenant if is_occupied else None
+        is_occupied = False
+        tenant = None
+
+        if latest_contract and latest_contract.status not in ['Terminated', 'Closed']:
+            is_occupied = True
+            tenant = latest_contract.tenant
 
         # Explode comma-separated units
         sub_names = [n.strip() for n in u.unit_number.split(',') if n.strip()]
@@ -47,7 +43,6 @@ def get_property_expanded_stats(property_obj):
         for sub in sub_names:
             apportioned_rent = float(u.base_rent) / num_subs if num_subs > 0 else 0
 
-            # Deduplication Logic: An Occupied state always overrides a Vacant state
             if sub in expanded_dict:
                 if is_occupied and not expanded_dict[sub]['is_occupied']:
                     expanded_dict[sub]['is_occupied'] = True
@@ -362,30 +357,41 @@ def owner_view_properties(request, landlord_id):
                 shops += 1
             elif 'F' in suffix or 'G' in suffix or 'M' in suffix:  # <--- Added 'M' right here!
                 flats += 1
-
-        # Fetch active/holdover contracts and order by newest first
+                # Fetch ALL contracts ordered by newest start_date first
         raw_contracts = Contract.objects.filter(
-            unit__property_asset=p
-        ).exclude(status__in=['Terminated', 'Closed']).select_related('tenant', 'unit').order_by('-end_date')
+                    unit__property_asset=p
+        ).select_related('tenant', 'unit').order_by('-start_date')
 
-        # --- GROUPING LOGIC ---
+                # --- BULLETPROOF GROUPING LOGIC ---
         grouped_contracts = {}
         for contract in raw_contracts:
             unit_id = contract.unit.id
             if unit_id not in grouped_contracts:
-                # First time seeing this unit (this will be the newest contract)
+                        # First time seeing this unit (this is the absolute newest contract)
+                        # If the newest contract is Closed/Terminated, the unit is VACANT.
+                if contract.status in ['Terminated', 'Closed']:
+                    grouped_contracts[unit_id] = 'VACANT'
+                    continue
+
+                        # Otherwise, it's Occupied! Set up the group.
                 grouped_contracts[unit_id] = {
-                    'unit': contract.unit,
-                    'tenant': contract.tenant,
-                    'latest_contract': contract,
-                    'history': []
+                            'unit': contract.unit,
+                            'tenant': contract.tenant,
+                            'latest_contract': contract,
+                            'history': []
                 }
-            # Add all contracts for this unit to the history array
+
+                    # If the unit was flagged as VACANT, skip all historical contracts for this unit
+            if grouped_contracts[unit_id] == 'VACANT':
+                continue
+
             grouped_contracts[unit_id]['history'].append(contract)
 
-        # Convert dictionary to a sorted list
-        grouped_contracts_list = sorted(grouped_contracts.values(), key=lambda x: x['unit'].unit_number)
-
+                # Convert to list and remove the VACANT placeholders
+        grouped_contracts_list = sorted(
+                    [g for g in grouped_contracts.values() if g != 'VACANT'],
+                    key=lambda x: x['unit'].unit_number
+        )
         documents = p.documents.all().order_by('-uploaded_at')
 
         property_data.append({
