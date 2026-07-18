@@ -352,13 +352,15 @@ def owner_view_properties(request, landlord_id):
         for eu in exp_units:
             unit_num = eu['unit_number']
             parts = unit_num.split('-')
+
+            # Look at the string segment after the hyphen '-'
             suffix = parts[1].upper() if len(parts) > 1 else unit_num.upper()
 
             if 'P' in suffix:
                 parkings += 1
             elif 'S' in suffix:
                 shops += 1
-            elif 'F' in suffix or 'G' in suffix:
+            elif 'F' in suffix or 'G' in suffix or 'M' in suffix:  # <--- Added 'M' right here!
                 flats += 1
 
         # Fetch active/holdover contracts and order by newest first
