@@ -94,7 +94,14 @@ class Contract(models.Model):
 
     start_date = models.DateField()
     end_date = models.DateField()
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)  # Includes Tasdeeq, etc.
+
+    # NEW: Separated Rent Fields
+    rent_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    net_rent_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
     def __str__(self):

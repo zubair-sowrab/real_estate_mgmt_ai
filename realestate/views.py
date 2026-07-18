@@ -336,9 +336,8 @@ def owner_vault(request, landlord_id):
 def owner_view_properties(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user,
-                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
-            "<h1>403 - Security Violation</h1>")
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403 - Security Violation</h1>")
 
     properties = Property.objects.filter(owner=landlord).prefetch_related(
         Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant'))
@@ -346,16 +345,56 @@ def owner_view_properties(request, landlord_id):
     property_data = []
 
     for p in properties:
-        _, _, _, occupancy_rate = get_property_expanded_stats(p)
-        active_contracts = Contract.objects.filter(
+        exp_units, t_count, o_count, occupancy_rate = get_property_expanded_stats(p)
+
+        # --- UNIT CATEGORIZATION LOGIC ---
+        flats, parkings, shops = 0, 0, 0
+        for eu in exp_units:
+            unit_num = eu['unit_number']
+            parts = unit_num.split('-')
+            suffix = parts[1].upper() if len(parts) > 1 else unit_num.upper()
+
+            if 'P' in suffix:
+                parkings += 1
+            elif 'S' in suffix:
+                shops += 1
+            elif 'F' in suffix or 'G' in suffix:
+                flats += 1
+
+        # Fetch active/holdover contracts and order by newest first
+        raw_contracts = Contract.objects.filter(
             unit__property_asset=p
-        ).exclude(status__in=['Terminated', 'Closed']).select_related('tenant', 'unit')
+        ).exclude(status__in=['Terminated', 'Closed']).select_related('tenant', 'unit').order_by('-end_date')
+
+        # --- GROUPING LOGIC ---
+        grouped_contracts = {}
+        for contract in raw_contracts:
+            unit_id = contract.unit.id
+            if unit_id not in grouped_contracts:
+                # First time seeing this unit (this will be the newest contract)
+                grouped_contracts[unit_id] = {
+                    'unit': contract.unit,
+                    'tenant': contract.tenant,
+                    'latest_contract': contract,
+                    'history': []
+                }
+            # Add all contracts for this unit to the history array
+            grouped_contracts[unit_id]['history'].append(contract)
+
+        # Convert dictionary to a sorted list
+        grouped_contracts_list = sorted(grouped_contracts.values(), key=lambda x: x['unit'].unit_number)
 
         documents = p.documents.all().order_by('-uploaded_at')
 
         property_data.append({
-            'property': p, 'occupancy_rate': occupancy_rate, 'active_contracts': active_contracts,
+            'property': p,
+            'occupancy_rate': occupancy_rate,
+            'grouped_contracts': grouped_contracts_list,  # Passed to template
             'documents': documents,
+            'stats': {
+                'total': t_count, 'occupied': o_count, 'vacant': t_count - o_count,
+                'flats': flats, 'parkings': parkings, 'shops': shops
+            }
         })
 
     notifications = get_dynamic_notifications(landlord)

@@ -1,4 +1,6 @@
+
 <!DOCTYPE html>
+{% load static %}
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -56,6 +58,14 @@
             letter-spacing: 0.5px;
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
+
+
+
+.logo {
+    width: 55px;   /* Adjust as needed */
+    height: 60px;
+    object-fit: contain;
+}
 
         .nav-menu { padding: 20px 0; flex: 1; overflow-y: auto;}
 
@@ -154,7 +164,7 @@
         {% block extra_css %}{% endblock %}
     </style>
 
-
+<link rel="icon" type="image/png" href="{% static 'images/logo.png' %}">
 
 </head>
 <body>
@@ -162,10 +172,11 @@
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
     <div class="sidebar" id="sidebar">
-        <div class="logo-area">
-            <i class="fa-solid fa-gem"></i>
-            <div>YBN PORTAL</div>
-        </div>
+       <div class="logo-area">
+<img src="{% static 'images/logo.png' %}" alt="EDRAK Portal Logo" class="logo">
+           <div>EDRAK PORTAL</div>
+</div>
+
         <div class="nav-menu">
                            <div class="nav-item" id="google_translate_element" style="margin-right: 15px; display: inline-block;"></div>
 
