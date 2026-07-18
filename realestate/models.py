@@ -121,13 +121,15 @@ class Collection(models.Model):
     cheque_number = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending PDC')
 
-    # NEW FIELDS FOR PARTIAL/REPLACED TRACKING
+    # NEW FIELD: Tracks if it goes to Edrak, Enjaz, etc.
+    payee_company = models.CharField(max_length=255, blank=True, null=True)
+
     received_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     pending_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     last_updated = models.DateTimeField(auto_now=True)
-
     is_replaced_partial = models.BooleanField(default=False)
+
     def save(self, *args, **kwargs):
         if self.cheque_number and self.cheque_number.strip().upper() == "CASH":
             self.status = "Cleared"

@@ -96,6 +96,7 @@
             <tr style="border-bottom: 2px solid #ddd; background: #f8fafc;">
                 <th style="padding: 12px 10px; white-space: nowrap;">Property - Unit</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Tenant</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Payee Company</th> <!-- NEW -->
                 <th style="padding: 12px 10px; white-space: nowrap;">Reference</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Amount</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Date</th>
@@ -105,6 +106,7 @@
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="padding: 12px 10px;">{{ row.contract.unit.property_asset.name }} - {{ row.contract.unit.unit_number }}</td>
                 <td style="padding: 12px 10px;">{{ row.contract.tenant.full_name }}</td>
+                <td style="padding: 12px 10px; font-size: 0.85rem; color: #64748b;">{{ row.payee_company|default:"Direct to Owner" }}</td> <!-- NEW -->
                 <td style="padding: 12px 10px;">{{ row.cheque_number }}</td>
                 <td style="padding: 12px 10px; font-weight: 600; white-space: nowrap;">AED {{ row.amount|floatformat:"2g" }}</td>
                 <td style="padding: 12px 10px; white-space: nowrap;">{{ row.due_date|date:"M d, Y" }}</td>

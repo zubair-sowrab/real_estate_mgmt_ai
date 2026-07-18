@@ -108,6 +108,15 @@
             </select>
         </div>
         <div class="form-group">
+            <label>Payee Company</label>
+            <select name="payee" class="form-control">
+                <option value="">All Companies</option>
+                {% for payee in unique_payees %}
+                    <option value="{{ payee }}" {% if filters.payee == payee %}selected{% endif %}>{{ payee }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
             <label>Status</label>
             <select name="status" class="form-control">
                 <option value="">All Statuses</option>
@@ -157,9 +166,15 @@
     {% for txn in transactions %}
     <div class="card-item">
         <div class="card-left">
-            <strong>{{ txn.contract.tenant.full_name }}</strong>
-            <span class="unit-ref">{{ txn.contract.unit.property_asset.name }} — Unit {{ txn.contract.unit.unit_number }}</span>
-            <span class="unit-ref">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <strong style="font-size: 1.1rem; color: var(--text-main);">{{ txn.contract.tenant.full_name }}</strong>
+                {% if txn.payee_company %}
+                    <span style="background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 2px 8px; border-radius: 12px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;">{{ txn.payee_company }}</span>
+                {% else %}
+                    <span style="background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 2px 8px; border-radius: 12px; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;">Direct to Owner</span>
+                {% endif %}
+            </div>
+            <span class="unit-ref">{{ txn.contract.unit.property_asset.name }} — Unit {{ txn.contract.unit.unit_number }}</span> <span class="unit-ref">
                 {% if txn.payment_type == 'Cheque' %}<i class="fa-solid fa-money-check"></i> CHQ: {{ txn.cheque_number }}
                 {% else %}<i class="fa-solid fa-building-columns"></i> Transfer{% endif %}
                 | <i class="fa-regular fa-calendar"></i> {{ txn.due_date|date:"M d, Y" }}

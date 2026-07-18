@@ -280,12 +280,9 @@ def owner_properties(request, landlord_id):
 def owner_vault(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user,
-                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
-            "<h1>403 - Security Violation</h1>")
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden("<h1>403 - Security Violation</h1>")
 
-    transactions = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
-        'contract__tenant', 'contract__unit__property_asset')
+    transactions = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related('contract__tenant', 'contract__unit__property_asset')
     properties = Property.objects.filter(owner=landlord)
 
     search_query = request.GET.get('search', '')
@@ -294,26 +291,26 @@ def owner_vault(request, landlord_id):
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     sort_by = request.GET.get('sort', '-id')
+    payee_filter = request.GET.get('payee', '') # <--- NEW
 
-    if search_query: transactions = transactions.filter(
-        Q(contract__tenant__full_name__icontains=search_query) | Q(cheque_number__icontains=search_query))
+    if search_query: transactions = transactions.filter(Q(contract__tenant__full_name__icontains=search_query) | Q(cheque_number__icontains=search_query))
     if property_filter: transactions = transactions.filter(contract__unit__property_asset_id=property_filter)
     if status_filter: transactions = transactions.filter(status=status_filter)
+    if payee_filter: transactions = transactions.filter(payee_company=payee_filter) # <--- NEW
     if date_from: transactions = transactions.filter(due_date__gte=date_from)
     if date_to: transactions = transactions.filter(due_date__lte=date_to)
 
-    if sort_by == 'date_asc':
-        transactions = transactions.order_by('due_date')
-    elif sort_by == '-due_date':
-        transactions = transactions.order_by('-due_date')
-    elif sort_by == 'amount_desc':
-        transactions = transactions.order_by('-amount')
-    elif sort_by == 'amount_asc':
-        transactions = transactions.order_by('amount')
-    elif sort_by == 'id_asc':
-        transactions = transactions.order_by('id')
-    else:
-        transactions = transactions.order_by('-id')
+    if sort_by == 'date_asc': transactions = transactions.order_by('due_date')
+    elif sort_by == '-due_date': transactions = transactions.order_by('-due_date')
+    elif sort_by == 'amount_desc': transactions = transactions.order_by('-amount')
+    elif sort_by == 'amount_asc': transactions = transactions.order_by('amount')
+    elif sort_by == 'id_asc': transactions = transactions.order_by('id')
+    else: transactions = transactions.order_by('-id')
+
+    # Get distinct payee companies for the filter dropdown
+    unique_payees = Collection.objects.filter(
+        contract__unit__property_asset__owner=landlord
+    ).exclude(payee_company__isnull=True).exclude(payee_company='').values_list('payee_company', flat=True).distinct()
 
     vault_breakdown = transactions.order_by().values('status').annotate(total=Sum('amount'))
     vault_dict = {item['status']: item['total'] or 0 for item in vault_breakdown}
@@ -328,8 +325,8 @@ def owner_vault(request, landlord_id):
 
     context = {
         'landlord': landlord, 'transactions': transactions, 'properties': properties, 'vault_sums': vault_sums,
-        'filters': {'search': search_query, 'property': int(property_filter) if property_filter.isdigit() else '',
-                    'status': status_filter, 'date_from': date_from, 'date_to': date_to, 'sort': sort_by, },
+        'unique_payees': unique_payees, # <--- Pass to template
+        'filters': { 'search': search_query, 'property': int(property_filter) if property_filter.isdigit() else '', 'status': status_filter, 'date_from': date_from, 'date_to': date_to, 'sort': sort_by, 'payee': payee_filter },
         'notifications': notifications, 'notif_count': len(notifications)
     }
     return render(request, 'realestate/owner_vault.html', context)
@@ -472,10 +469,24 @@ def owner_reports(request, landlord_id):
         response[
             'Content-Disposition'] = f'attachment; filename="Comprehensive_Report_{timezone.now().strftime("%Y%m%d")}.csv"'
         writer = csv.writer(response)
-        writer.writerow(['Property', 'Unit', 'Tenant Name', 'Cheque/Ref Number', 'Amount (AED)', 'Due Date', 'Status'])
-        for row in reports_data: writer.writerow(
-            [row.contract.unit.property_asset.name, row.contract.unit.unit_number, row.contract.tenant.full_name,
-             row.cheque_number, row.amount, row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A', row.status])
+
+        # ADDED 'Payee Company' to headers
+        writer.writerow(
+            ['Property', 'Unit', 'Tenant Name', 'Payee Company', 'Cheque/Ref Number', 'Amount (AED)', 'Due Date',
+             'Status'])
+
+        for row in reports_data:
+            # ADDED 'row.payee_company' to the data output
+            writer.writerow([
+                row.contract.unit.property_asset.name,
+                row.contract.unit.unit_number,
+                row.contract.tenant.full_name,
+                row.payee_company if row.payee_company else "Direct to Owner",
+                row.cheque_number,
+                row.amount,
+                row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A',
+                row.status
+            ])
         return response
 
     properties = Property.objects.filter(owner=landlord)
