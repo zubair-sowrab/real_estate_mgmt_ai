@@ -39,51 +39,13 @@
 <p class="page-subtitle" style="margin-bottom: 20px;">Operational breakdown of active leases and vacancies.</p>
 
 <div class="tabs">
-    <button class="tab-btn active" onclick="openTab(event, 'tab-active')">Active Contracts ({{ active_contracts.count }})</button>
-    <button class="tab-btn" onclick="openTab(event, 'tab-renewal')">Due for Renewal ({{ renewals.count }})</button>
+    <button class="tab-btn active" onclick="openTab(event, 'tab-renewal')">Due for Renewal ({{ renewals.count }})</button>
     <button class="tab-btn" onclick="openTab(event, 'tab-expiry')">Expiry Next 90 Days ({{ expiry_90.count }})</button>
-    <button class="tab-btn" onclick="openTab(event, 'tab-vacant')">Vacant List ({{ vacant_units.count }})</button>
+    <button class="tab-btn" onclick="openTab(event, 'tab-vacant')">Vacant List</button>
 </div>
 
-<div id="tab-active" class="tab-content active">
-    <div class="table-container">
-        <table style="min-width: 100%;">
-            <thead>
-                <tr>
-                    <th>Property & Tenant</th>
-                    <th>Lease Duration</th>
-                    <th class="text-right">Financials & Status</th>
-                </tr>
-            </thead>
-           <tbody>
-                {% for eu in vacant_units %}
-                <tr>
-                    <td>
-                        <strong>{{ eu.original_unit.property_asset.name }}</strong><br>
-                        <span style="color: var(--text-muted); font-size: 0.85rem;">Unit {{ eu.unit_number }}</span>
-                    </td>
-                    <td>
 
-                        <span class="badge danger" style="margin-top: 4px;">Vacant</span>
-                    </td>
-                    <td class="text-right">
-                        <strong>AED {{ contract.total_amount|floatformat:"2g" }}</strong><br>
-                        {% if contract.status == 'Expired (Holdover)' %}
-                            <span class="badge holdover">Up For Renewal</span>
-                        {% else %}
-                            <span class="badge success">{{ contract.status }}</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% empty %}
-                <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Portfolio is fully occupied.</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<div id="tab-renewal" class="tab-content">
+<div id="tab-renewal" class="tab-content active">
     <div class="table-container">
         <table style="min-width: 100%;">
             <thead>
@@ -169,7 +131,7 @@
                         <span style="color: var(--text-muted); font-size: 0.85rem;">Unit {{ unit.unit_number }}</span>
                     </td>
                     <td>
-                        {{ unit.unit_type }}<br>
+                       
                         <span class="badge danger" style="margin-top: 4px;">Vacant</span>
                     </td>
                     <td class="text-right">
