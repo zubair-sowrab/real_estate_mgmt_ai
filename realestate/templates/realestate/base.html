@@ -190,6 +190,11 @@
 <a href="{% url 'owner_occupancy_status' landlord.id %}" class="nav-item">
     <i class="fa-solid fa-door-open"></i> Occupancy Status
 </a>
+        {% if request.user.is_superuser %}
+<a href="{% url 'admin_dashboard' %}" class="nav-item">
+    <i class="fa-solid fa-list"></i> Select Owner
+</a>
+{% endif %}
                   <a href="{% url 'logout' %}" class="nav-item"><i class="fa-danger fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
 
         </div>
