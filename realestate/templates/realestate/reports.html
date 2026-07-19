@@ -44,6 +44,15 @@
         .no-print { display: none !important; }
         .table-responsive { overflow-x: visible; } /* Remove scrollbar when printing */
     }
+
+
+  /* Chart Fullscreen & Export Styles */
+    .chart-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--border-light); box-shadow: 0 2px 8px rgba(0,0,0,0.02); display: flex; flex-direction: column; transition: all 0.3s ease; }
+    .chart-wrapper { position: relative; height: 250px; flex-grow: 1; }
+    .chart-card:-webkit-full-screen { width: 100vw; height: 100vh; padding: 40px; overflow: hidden; }
+    .chart-card:fullscreen { width: 100vw; height: 100vh; padding: 40px; overflow: hidden; }
+    .chart-btn { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 5px 8px; border-radius: 4px; transition: 0.2s; }
+    .chart-btn:hover { background: #f1f5f9; color: var(--primary-gold); }
 </style>
 {% endblock %}
 
@@ -51,18 +60,52 @@
 <h1 class="page-title">Comprehensive Reports</h1>
 
 <div class="filter-section no-print">
-    <form method="GET" class="responsive-grid">
+  <form method="GET" class="responsive-grid">
         <div>
             <label>Property</label>
             <select name="property" class="form-control">
-                <option value="">All</option>
+                <option value="">All Properties</option>
                 {% for prop in properties %}
                     <option value="{{ prop.id }}" {% if filters.property == prop.id %}selected{% endif %}>{{ prop.name }}</option>
                 {% endfor %}
             </select>
         </div>
-        <div><label>Unit</label><input type="text" name="unit" class="form-control" value="{{ filters.unit }}"></div>
-        <div><label>Tenant Name</label><input type="text" name="tenant" class="form-control" value="{{ filters.tenant }}"></div>
+
+        <div>
+            <label>Unit</label>
+            <select name="unit" class="form-control">
+                <option value="">All Units</option>
+                {% for u in units_list %}
+                    <option value="{{ u }}" {% if filters.unit == u %}selected{% endif %}>{{ u }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Tenant Name</label>
+            <input type="text" name="tenant" class="form-control" value="{{ filters.tenant }}" placeholder="Search name...">
+        </div>
+
+        <div>
+            <label>Payee Company</label>
+            <select name="payee" class="form-control">
+                <option value="">All Payees</option>
+                {% for company in payee_list %}
+                    <option value="{{ company }}" {% if filters.payee == company %}selected{% endif %}>{{ company }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div>
+            <label>Contract Status</label>
+            <select name="contract_status" class="form-control">
+                <option value="">All</option>
+                <option value="Active" {% if filters.contract_status == 'Active' %}selected{% endif %}>Active</option>
+                <option value="Expired (Holdover)" {% if filters.contract_status == 'Expired (Holdover)' %}selected{% endif %}>Expired (Holdover)</option>
+                <option value="Closed" {% if filters.contract_status == 'Closed' %}selected{% endif %}>Closed</option>
+                <option value="Terminated" {% if filters.contract_status == 'Terminated' %}selected{% endif %}>Terminated</option>
+            </select>
+        </div>
 
         <div>
             <label>Cheque Status</label>
@@ -71,10 +114,20 @@
                 <option value="Cleared" {% if filters.status == 'Cleared' %}selected{% endif %}>Cleared</option>
                 <option value="Pending PDC" {% if filters.status == 'Pending PDC' %}selected{% endif %}>Pending PDC</option>
                 <option value="Bounced" {% if filters.status == 'Bounced' %}selected{% endif %}>Bounced</option>
+                <option value="Replaced/Partial" {% if filters.status == 'Replaced/Partial' %}selected{% endif %}>Replaced/Partial</option>
+                <option value="Terminated PDC" {% if filters.status == 'Terminated PDC' %}selected{% endif %}>Terminated PDC</option>
             </select>
         </div>
-        <div><label>Date From</label><input type="date" name="date_from" class="form-control" value="{{ filters.date_from }}"></div>
-        <div><label>Date To</label><input type="date" name="date_to" class="form-control" value="{{ filters.date_to }}"></div>
+
+        <div>
+            <label>Date From</label>
+            <input type="date" name="date_from" class="form-control" value="{{ filters.date_from }}">
+        </div>
+
+        <div>
+            <label>Date To</label>
+            <input type="date" name="date_to" class="form-control" value="{{ filters.date_to }}">
+        </div>
 
         <div style="grid-column: 1 / -1;" class="button-group">
             <button type="submit" class="btn-action"><i class="fa-solid fa-magnifying-glass"></i> Generate</button>
@@ -84,6 +137,65 @@
         </div>
     </form>
 </div>
+
+
+
+
+
+
+<!-- VISUAL ANALYTICS DASHBOARD -->
+<div class="analytics-grid no-print" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 30px;">
+
+    <!-- 1. Revenue Trend Line Chart -->
+    <div class="chart-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="margin: 0; color: var(--text-main); font-size: 1.05rem;">Revenue Trend (Cleared)</h4>
+            <div>
+                <button type="button" class="chart-btn" onclick="downloadChart('revenueChart', 'Revenue_Trend')" title="Download PNG"><i class="fa-solid fa-download"></i></button>
+                <button type="button" class="chart-btn" onclick="toggleFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+            </div>
+        </div>
+        <div class="chart-wrapper"><canvas id="revenueChart"></canvas></div>
+    </div>
+
+    <!-- 2. Property Revenue Doughnut -->
+    <div class="chart-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="margin: 0; color: var(--text-main); font-size: 1.05rem;">Revenue by Property</h4>
+            <div>
+                <button type="button" class="chart-btn" onclick="downloadChart('propChart', 'Revenue_by_Property')" title="Download PNG"><i class="fa-solid fa-download"></i></button>
+                <button type="button" class="chart-btn" onclick="toggleFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+            </div>
+        </div>
+        <div class="chart-wrapper"><canvas id="propChart"></canvas></div>
+    </div>
+
+    <!-- 3. Rent Growth Bar Chart -->
+    <div class="chart-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="margin: 0; color: var(--text-main); font-size: 1.05rem;">Portfolio Rent Growth (Avg YoY)</h4>
+            <div>
+                <button type="button" class="chart-btn" onclick="downloadChart('growthChart', 'Rent_Growth')" title="Download PNG"><i class="fa-solid fa-download"></i></button>
+                <button type="button" class="chart-btn" onclick="toggleFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+            </div>
+        </div>
+        <div class="chart-wrapper"><canvas id="growthChart"></canvas></div>
+    </div>
+
+    <!-- 4. Status Breakdown Pie -->
+    <div class="chart-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <h4 style="margin: 0; color: var(--text-main); font-size: 1.05rem;">Collection Status Breakdown</h4>
+            <div>
+                <button type="button" class="chart-btn" onclick="downloadChart('statusChart', 'Collection_Status')" title="Download PNG"><i class="fa-solid fa-download"></i></button>
+                <button type="button" class="chart-btn" onclick="toggleFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
+            </div>
+        </div>
+        <div class="chart-wrapper"><canvas id="statusChart"></canvas></div>
+    </div>
+</div>
+
+
 
 <div id="printable-report" style="background: white; padding: 20px; border-radius: 8px;">
     <h3 style="margin-bottom: 5px;">Report Results</h3>
@@ -96,9 +208,11 @@
             <tr style="border-bottom: 2px solid #ddd; background: #f8fafc;">
                 <th style="padding: 12px 10px; white-space: nowrap;">Property - Unit</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Tenant</th>
-                <th style="padding: 12px 10px; white-space: nowrap;">Payee Company</th> <!-- NEW -->
+                <th style="padding: 12px 10px; white-space: nowrap;">Payee Company</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Reference</th>
-                <th style="padding: 12px 10px; white-space: nowrap;">Amount</th>
+                <th style="padding: 12px 10px; white-space: nowrap;">Cheque Amount</th>
+                <!-- NEW HEADER -->
+                <th style="padding: 12px 10px; white-space: nowrap; color: var(--primary-gold);">Contract Net Rent</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Date</th>
                 <th style="padding: 12px 10px; white-space: nowrap;">Status</th>
             </tr>
@@ -106,9 +220,13 @@
             <tr style="border-bottom: 1px solid #eee;">
                 <td style="padding: 12px 10px;">{{ row.contract.unit.property_asset.name }} - {{ row.contract.unit.unit_number }}</td>
                 <td style="padding: 12px 10px;">{{ row.contract.tenant.full_name }}</td>
-                <td style="padding: 12px 10px; font-size: 0.85rem; color: #64748b;">{{ row.payee_company|default:"Direct to Owner" }}</td> <!-- NEW -->
+                <td style="padding: 12px 10px; font-size: 0.85rem; color: #64748b;">{{ row.payee_company|default:"Direct to Owner" }}</td>
                 <td style="padding: 12px 10px;">{{ row.cheque_number }}</td>
                 <td style="padding: 12px 10px; font-weight: 600; white-space: nowrap;">AED {{ row.amount|floatformat:"2g" }}</td>
+
+                <!-- NEW DATA CELL (Displays the pure lease value) -->
+                <td style="padding: 12px 10px; font-weight: 700; white-space: nowrap; color: var(--primary-gold);">AED {{ row.contract.net_rent_amount|floatformat:"2g" }}</td>
+
                 <td style="padding: 12px 10px; white-space: nowrap;">{{ row.due_date|date:"M d, Y" }}</td>
                 <td style="padding: 12px 10px;">
                     <span style="padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; font-weight: 600;
@@ -125,4 +243,132 @@
         </table>
     </div>
 </div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Load Data Passed from Django
+    const months = {{ analytics.months|safe }};
+    const collections = {{ analytics.collections|safe }};
+    const props = {{ analytics.props|safe }};
+    const propRev = {{ analytics.prop_rev|safe }};
+    const statuses = {{ analytics.statuses|safe }};
+    const statusTotals = {{ analytics.status_totals|safe }};
+    const years = {{ analytics.years|safe }};
+    const avgRents = {{ analytics.avg_rents|safe }};
+
+    const formatCurrency = (value) => 'AED ' + value.toLocaleString(undefined, {minimumFractionDigits: 0});
+
+
+
+    // --- NEW: Force white background for downloaded images ---
+    Chart.register({
+        id: 'whiteBackground',
+        beforeDraw: (chart) => {
+            const ctx = chart.canvas.getContext('2d');
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, chart.width, chart.height);
+            ctx.restore();
+        }
+    });
+
+    // --- NEW: Download Chart Function ---
+    function downloadChart(chartId, filename) {
+        const canvas = document.getElementById(chartId);
+        const link = document.createElement('a');
+        link.download = filename + '.png';
+        link.href = canvas.toDataURL('image/png', 1.0);
+        link.click();
+    }
+
+    // --- NEW: Fullscreen Function ---
+    function toggleFullscreen(btn) {
+        const card = btn.closest('.chart-card');
+        const icon = btn.querySelector('i');
+
+        if (!document.fullscreenElement) {
+            card.requestFullscreen().catch(err => {
+                alert(`Error enabling fullscreen: ${err.message}`);
+            });
+            icon.classList.remove('fa-expand');
+            icon.classList.add('fa-compress');
+        } else {
+            document.exitFullscreen();
+            icon.classList.remove('fa-compress');
+            icon.classList.add('fa-expand');
+        }
+    }
+    // 1. Revenue Line Chart
+    new Chart(document.getElementById('revenueChart'), {
+        type: 'line',
+        data: {
+            labels: months,
+            datasets: [{
+                label: 'Cleared Revenue', data: collections,
+                borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                borderWidth: 3, fill: true, tension: 0.3, pointRadius: 4
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { tooltip: { callbacks: { label: function(ctx) { return formatCurrency(ctx.raw); } } } }
+        }
+    });
+
+    // 2. Property Doughnut Chart
+    new Chart(document.getElementById('propChart'), {
+        type: 'doughnut',
+        data: {
+            labels: props,
+            datasets: [{
+                data: propRev,
+                backgroundColor: ['#d4af37', '#1e3a8a', '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#64748b']
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { tooltip: { callbacks: { label: function(ctx) { return ' ' + formatCurrency(ctx.raw); } } } }
+        }
+    });
+
+    // 3. Rent Growth Bar Chart
+    new Chart(document.getElementById('growthChart'), {
+        type: 'bar',
+        data: {
+            labels: years,
+            datasets: [{
+                label: 'Avg Rent (AED)', data: avgRents,
+                backgroundColor: '#3b82f6', borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { tooltip: { callbacks: { label: function(ctx) { return formatCurrency(ctx.raw); } } } }
+        }
+    });
+
+    // 4. Status Pie Chart
+    const statusColors = statuses.map(s => {
+        const cleanStatus = s.trim(); // Forces exact matching!
+        if(cleanStatus === 'Cleared') return '#10b981';
+        if(cleanStatus === 'Pending PDC') return '#f59e0b';
+        if(cleanStatus === 'Bounced') return '#ef4444';
+        if(cleanStatus === 'Terminated PDC') return '#64748b';
+        return '#3b82f6'; // Replaced/Partial
+    });
+
+    new Chart(document.getElementById('statusChart'), {
+        type: 'pie',
+        data: {
+            labels: statuses,
+            datasets: [{ data: statusTotals, backgroundColor: statusColors }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { tooltip: { callbacks: { label: function(ctx) { return ' ' + formatCurrency(ctx.raw); } } } }
+        }
+    });
+</script>
 {% endblock %}

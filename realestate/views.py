@@ -2,6 +2,9 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.db.models import Sum, Q, Prefetch
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
+from django.db.models.functions import TruncMonth, TruncYear
+from django.db.models import Avg
+import json
 from django.http import HttpResponseForbidden
 from django.utils import timezone
 from datetime import timedelta, date
@@ -461,14 +464,15 @@ def owner_occupancy_status(request, landlord_id):
 def owner_reports(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user,
-                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
-            "<h1>403</h1>")
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
 
     prop_filter = request.GET.get('property', '')
     unit_filter = request.GET.get('unit', '').strip()
     tenant_filter = request.GET.get('tenant', '').strip()
     status_filter = request.GET.get('status', '')
+    contract_status_filter = request.GET.get('contract_status', '')
+    payee_filter = request.GET.get('payee', '')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     export_format = request.GET.get('export', '')
@@ -476,49 +480,100 @@ def owner_reports(request, landlord_id):
     reports_data = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
         'contract__tenant', 'contract__unit__property_asset').order_by('-due_date')
 
+    # Apply Filters
     if prop_filter: reports_data = reports_data.filter(contract__unit__property_asset_id=prop_filter)
     if unit_filter: reports_data = reports_data.filter(contract__unit__unit_number__icontains=unit_filter)
     if tenant_filter: reports_data = reports_data.filter(contract__tenant__full_name__icontains=tenant_filter)
     if status_filter: reports_data = reports_data.filter(status=status_filter)
+    if contract_status_filter: reports_data = reports_data.filter(contract__status=contract_status_filter)
+    if payee_filter: reports_data = reports_data.filter(payee_company=payee_filter)
     if date_from: reports_data = reports_data.filter(due_date__gte=date_from)
     if date_to: reports_data = reports_data.filter(due_date__lte=date_to)
 
+    # --- CSV EXPORT (Includes Net Rent) ---
     if export_format == 'csv':
         response = HttpResponse(content_type='text/csv')
-        response[
-            'Content-Disposition'] = f'attachment; filename="Comprehensive_Report_{timezone.now().strftime("%Y%m%d")}.csv"'
+        response['Content-Disposition'] = f'attachment; filename="Comprehensive_Report_{timezone.now().strftime("%Y%m%d")}.csv"'
         writer = csv.writer(response)
 
-        # ADDED 'Payee Company' to headers
         writer.writerow(
-            ['Property', 'Unit', 'Tenant Name', 'Payee Company', 'Cheque/Ref Number', 'Amount (AED)', 'Due Date',
-             'Status'])
-
+            ['Property', 'Unit', 'Tenant Name', 'Payee Company', 'Cheque/Ref Number', 'Cheque Amount (AED)',
+             'Contract Net Rent (AED)', 'Due Date', 'Cheque Status', 'Contract Status']
+        )
         for row in reports_data:
-            # ADDED 'row.payee_company' to the data output
             writer.writerow([
-                row.contract.unit.property_asset.name,
-                row.contract.unit.unit_number,
-                row.contract.tenant.full_name,
-                row.payee_company if row.payee_company else "Direct to Owner",
-                row.cheque_number,
-                row.amount,
-                row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A',
-                row.status
+                row.contract.unit.property_asset.name, row.contract.unit.unit_number, row.contract.tenant.full_name,
+                row.payee_company if row.payee_company else "Direct to Owner", row.cheque_number, row.amount,
+                row.contract.net_rent_amount,  # <--- Pure Net Rent included
+                row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A', row.status, row.contract.status
             ])
         return response
 
+    # ==========================================
+    # VISUAL ANALYTICS ENGINE
+    # ==========================================
+    monthly_qs = reports_data.filter(status='Cleared', due_date__isnull=False) \
+        .annotate(month=TruncMonth('due_date')).values('month').annotate(total=Sum('amount')).order_by('month')
+    chart_months = [m['month'].strftime("%b %Y") for m in monthly_qs if m['month']]
+    chart_collections = [float(m['total']) for m in monthly_qs]
+
+    prop_qs = reports_data.filter(status='Cleared') \
+        .values('contract__unit__property_asset__name').annotate(total=Sum('amount')).order_by('-total')
+    chart_props = [p['contract__unit__property_asset__name'] for p in prop_qs]
+    chart_prop_rev = [float(p['total']) for p in prop_qs]
+
+    # --- THE FIX: Stripping invisible spaces to crush chart duplicates ---
+    raw_status_qs = reports_data.values('status').annotate(total=Sum('amount'))
+    status_dict = {}
+    for s in raw_status_qs:
+        clean_status = str(s['status']).strip() if s['status'] else 'Unknown'
+        status_dict[clean_status] = status_dict.get(clean_status, 0) + float(s['total'])
+
+    chart_statuses = list(status_dict.keys())
+    chart_status_totals = list(status_dict.values())
+
+    # --- THE FIX: Apply the exact same search filters to the Rent Trend Graph ---
+    contract_qs = Contract.objects.filter(unit__property_asset__owner=landlord, start_date__isnull=False)
+    if prop_filter: contract_qs = contract_qs.filter(unit__property_asset_id=prop_filter)
+    if unit_filter: contract_qs = contract_qs.filter(unit__unit_number__icontains=unit_filter)
+    if tenant_filter: contract_qs = contract_qs.filter(tenant__full_name__icontains=tenant_filter)
+    if contract_status_filter: contract_qs = contract_qs.filter(status=contract_status_filter)
+
+    rent_trend_qs = contract_qs.annotate(year=TruncYear('start_date')) \
+        .values('year').annotate(avg_rent=Avg('net_rent_amount')).order_by('year')
+
+    chart_years = [y['year'].strftime("%Y") for y in rent_trend_qs if y['year']]
+    chart_avg_rents = [float(y['avg_rent']) for y in rent_trend_qs]
+    analytics = {
+        'months': json.dumps(chart_months), 'collections': json.dumps(chart_collections),
+        'props': json.dumps(chart_props), 'prop_rev': json.dumps(chart_prop_rev),
+        'statuses': json.dumps(chart_statuses), 'status_totals': json.dumps(chart_status_totals),
+        'years': json.dumps(chart_years), 'avg_rents': json.dumps(chart_avg_rents),
+    }
+
+    # ==========================================
+    # DROPDOWN DATA LISTS
+    # ==========================================
     properties = Property.objects.filter(owner=landlord)
-    notifications = get_dynamic_notifications(landlord)
+    units_list = Unit.objects.filter(property_asset__owner=landlord).values_list('unit_number', flat=True).distinct().order_by('unit_number')
+    payee_list = Collection.objects.filter(contract__unit__property_asset__owner=landlord).exclude(payee_company__isnull=True).exclude(payee_company='').values_list('payee_company', flat=True).distinct().order_by('payee_company')
+
     total_amount = reports_data.aggregate(Sum('amount'))['amount__sum'] or 0
+    notifications = get_dynamic_notifications(landlord)
 
-    return render(request, 'realestate/reports.html',
-                  {'landlord': landlord, 'reports_data': reports_data, 'properties': properties,
-                   'total_amount': total_amount,
-                   'filters': {'property': int(prop_filter) if prop_filter.isdigit() else '', 'unit': unit_filter,
-                               'tenant': tenant_filter, 'status': status_filter, 'date_from': date_from,
-                               'date_to': date_to}, 'notifications': notifications, 'notif_count': len(notifications)})
+    context = {
+        'landlord': landlord, 'reports_data': reports_data, 'properties': properties,
+        'units_list': units_list, 'payee_list': payee_list,
+        'total_amount': total_amount, 'analytics': analytics,
+        'filters': {
+            'property': int(prop_filter) if prop_filter.isdigit() else '', 'unit': unit_filter,
+            'tenant': tenant_filter, 'status': status_filter, 'contract_status': contract_status_filter,
+            'payee': payee_filter, 'date_from': date_from, 'date_to': date_to
+        },
+        'notifications': notifications, 'notif_count': len(notifications)
+    }
 
+    return render(request, 'realestate/reports.html', context)
 
 @login_required(login_url='/login/')
 def upload_document(request, landlord_id):
