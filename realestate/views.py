@@ -22,42 +22,44 @@ def get_property_expanded_stats(property_obj):
     units = property_obj.units.all()
     expanded_dict = {}
 
+    # PASS 1: Initialize sub-units and aggregate ALL contracts touching them
     for u in units:
         if '-' not in u.unit_number:
             continue
 
-        # --- THE FIX: ONLY check the newest contract to prevent historical ghosting ---
-        latest_contract = u.contracts.order_by('-start_date').first()
-
-        is_occupied = False
-        tenant = None
-
-        if latest_contract and latest_contract.status not in ['Terminated', 'Closed']:
-            is_occupied = True
-            tenant = latest_contract.tenant
-
-        # Explode comma-separated units
         sub_names = [n.strip() for n in u.unit_number.split(',') if n.strip()]
         num_subs = len(sub_names)
+        apportioned_rent = float(u.base_rent) / num_subs if num_subs > 0 else 0
+
+        # Grab all contracts associated with this specific database unit string
+        unit_contracts = list(u.contracts.all())
 
         for sub in sub_names:
-            apportioned_rent = float(u.base_rent) / num_subs if num_subs > 0 else 0
-
-            if sub in expanded_dict:
-                if is_occupied and not expanded_dict[sub]['is_occupied']:
-                    expanded_dict[sub]['is_occupied'] = True
-                    expanded_dict[sub]['tenant'] = tenant
-                    expanded_dict[sub]['original_unit'] = u
-                    expanded_dict[sub]['base_rent'] = apportioned_rent
-            else:
+            if sub not in expanded_dict:
                 expanded_dict[sub] = {
                     'unit_number': sub,
-                    'is_occupied': is_occupied,
-                    'tenant': tenant,
+                    'is_occupied': False,
+                    'tenant': None,
                     'original_unit': u,
                     'base_rent': apportioned_rent,
-                    'unit_type': u.unit_type
+                    'unit_type': u.unit_type,
+                    'all_contracts': []
                 }
+            # Throw all contracts into this sub-unit's master pool
+            expanded_dict[sub]['all_contracts'].extend(unit_contracts)
+
+    # PASS 2: Determine occupancy strictly by the absolute newest contract
+    for sub, data in expanded_dict.items():
+        if not data['all_contracts']:
+            continue
+
+        # Find the contract with the absolute newest start & end date across ALL overlapping strings
+        newest_contract = max(data['all_contracts'], key=lambda c: (c.start_date, c.end_date))
+
+        # If the absolute newest contract is Active or Holdover, the unit is Occupied!
+        if newest_contract.status not in ['Terminated', 'Closed']:
+            data['is_occupied'] = True
+            data['tenant'] = newest_contract.tenant
 
     expanded_units = list(expanded_dict.values())
     total_count = len(expanded_units)
