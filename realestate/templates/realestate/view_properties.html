@@ -165,39 +165,60 @@
                 </form>
             </div>
             <div><br></div>
-            <h3>Active Tenants</h3>
+            <h3>All Units & Lease History</h3>
             <table style="width: 100%; border-collapse: collapse;">
                 <thead>
                     <tr>
                         <th>Unit</th>
-                        <th>Tenant Name</th>
+                        <th>Status</th>
+                        <th>Current Tenant</th>
                         <th>Latest Contract</th>
                         <th>Net Rent</th>
                         <th style="text-align: right;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for group in data.grouped_contracts %}
+                    {% for unit_data in data.exp_units %}
                     <!-- MASTER ROW -->
                     <tr style="border-bottom: 1px solid var(--border-light);">
                         <td>
-                            <strong>{{ group.unit.unit_number }}</strong>
+                            <strong>{{ unit_data.unit_number }}</strong>
                         </td>
-                        <td>{{ group.tenant.full_name }}</td>
-                        <td>{{ group.latest_contract.start_date|date:"M d, Y" }} - {{ group.latest_contract.end_date|date:"M d, Y" }}</td>
-                        <td><strong>AED {{ group.latest_contract.net_rent_amount|floatformat:"2g" }}</strong></td>
+                        <td>
+                            {% if unit_data.is_occupied %}
+                                <span style="padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; background: #dcfce7; color: #166534;">Occupied</span>
+                            {% else %}
+                                <span style="padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; background: #fee2e2; color: #991b1b;">Vacant</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ unit_data.tenant.full_name|default:"-" }}</td>
+                        <td>
+                            {% if unit_data.latest_contract %}
+                                {{ unit_data.latest_contract.start_date|date:"M d, Y" }} - {{ unit_data.latest_contract.end_date|date:"M d, Y" }}
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if unit_data.latest_contract %}
+                                <strong>AED {{ unit_data.latest_contract.net_rent_amount|floatformat:"2g" }}</strong>
+                            {% else %}
+                                -
+                            {% endif %}
+                        </td>
                         <td style="text-align: right;">
                             <button type="button"
-                                    style="background: var(--dark-sidebar); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.8rem;"
-                                    onclick="toggleHistory('hist-{{ data.property.id }}-{{ group.unit.id }}')">
-                                <i class="fa-solid fa-list" style="margin-right: 4px;"></i> View Leases ({{ group.history|length }})
+                                    style="background: var(--dark-sidebar); color: white; border: none; padding: 6px 12px; border-radius: 4px; font-weight: 600; cursor: pointer; font-size: 0.8rem; opacity: {% if unit_data.history|length > 0 %}1{% else %}0.5{% endif %};"
+                                    onclick="toggleHistory('hist-{{ data.property.id }}-{{ forloop.counter }}')"
+                                    {% if not unit_data.history %}disabled{% endif %}>
+                                <i class="fa-solid fa-list" style="margin-right: 4px;"></i> View Leases ({{ unit_data.history|length }})
                             </button>
                         </td>
                     </tr>
 
                     <!-- HIDDEN HISTORY ROW -->
-                    <tr id="hist-{{ data.property.id }}-{{ group.unit.id }}" style="display: none; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">
-                        <td colspan="5" style="padding: 15px 20px;">
+                    <tr id="hist-{{ data.property.id }}-{{ forloop.counter }}" style="display: none; background: #f8fafc; border-bottom: 2px solid #cbd5e1;">
+                        <td colspan="6" style="padding: 15px 20px;">
                             <div style="background: white; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden;">
                                 <table style="width: 100%; margin: 0; font-size: 0.85rem;">
                                     <thead style="background: #e2e8f0;">
@@ -210,7 +231,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {% for contract in group.history %}
+                                        {% for contract in unit_data.history %}
                                         <tr style="border-bottom: 1px solid #f1f5f9;">
                                             <td style="padding: 8px 12px;">{{ contract.start_date|date:"M d, Y" }} - {{ contract.end_date|date:"M d, Y" }}</td>
                                             <td style="padding: 8px 12px;">AED {{ contract.rent_amount|floatformat:"2g" }}</td>
@@ -229,7 +250,7 @@
                         </td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">No active tenants found.</td></tr>
+                    <tr><td colspan="6" style="text-align: center; padding: 20px; color: var(--text-muted);">No units found for this property.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

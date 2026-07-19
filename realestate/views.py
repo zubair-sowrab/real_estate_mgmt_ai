@@ -357,49 +357,19 @@ def owner_view_properties(request, landlord_id):
                 parkings += 1
             elif 'S' in suffix:
                 shops += 1
-            elif 'F' in suffix or 'G' in suffix or 'M' in suffix:  # <--- Added 'M' right here!
+            elif 'F' in suffix or 'G' in suffix or 'M' in suffix:
                 flats += 1
-                # Fetch ALL contracts ordered by newest start_date first
-        raw_contracts = Contract.objects.filter(
-                    unit__property_asset=p
-        ).select_related('tenant', 'unit').order_by('-start_date')
 
-                # --- BULLETPROOF GROUPING LOGIC ---
-        grouped_contracts = {}
-        for contract in raw_contracts:
-            unit_id = contract.unit.id
-            if unit_id not in grouped_contracts:
-                        # First time seeing this unit (this is the absolute newest contract)
-                        # If the newest contract is Closed/Terminated, the unit is VACANT.
-                if contract.status in ['Terminated', 'Closed']:
-                    grouped_contracts[unit_id] = 'VACANT'
-                    continue
+            # --- THE NEW ADDITION: Sort history for the template ---
+            eu['history'] = sorted(eu['all_contracts'], key=lambda c: c.start_date, reverse=True)
+            eu['latest_contract'] = eu['history'][0] if eu['history'] else None
 
-                        # Otherwise, it's Occupied! Set up the group.
-                grouped_contracts[unit_id] = {
-                            'unit': contract.unit,
-                            'tenant': contract.tenant,
-                            'latest_contract': contract,
-                            'history': []
-                }
-
-                    # If the unit was flagged as VACANT, skip all historical contracts for this unit
-            if grouped_contracts[unit_id] == 'VACANT':
-                continue
-
-            grouped_contracts[unit_id]['history'].append(contract)
-
-                # Convert to list and remove the VACANT placeholders
-        grouped_contracts_list = sorted(
-                    [g for g in grouped_contracts.values() if g != 'VACANT'],
-                    key=lambda x: x['unit'].unit_number
-        )
         documents = p.documents.all().order_by('-uploaded_at')
 
         property_data.append({
             'property': p,
             'occupancy_rate': occupancy_rate,
-            'grouped_contracts': grouped_contracts_list,  # Passed to template
+            'exp_units': exp_units,  # <--- Passing ALL units to the template
             'documents': documents,
             'stats': {
                 'total': t_count, 'occupied': o_count, 'vacant': t_count - o_count,
