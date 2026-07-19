@@ -509,20 +509,39 @@ def owner_reports(request, landlord_id):
             ])
         return response
 
-    # ==========================================
-    # VISUAL ANALYTICS ENGINE
-    # ==========================================
+        # ==========================================
+        # VISUAL ANALYTICS ENGINE
+        # ==========================================
+
+        # 1. Revenue Trend Line Chart
     monthly_qs = reports_data.filter(status='Cleared', due_date__isnull=False) \
-        .annotate(month=TruncMonth('due_date')).values('month').annotate(total=Sum('amount')).order_by('month')
+            .annotate(month=TruncMonth('due_date')).values('month').annotate(total=Sum('amount')).order_by('month')
     chart_months = [m['month'].strftime("%b %Y") for m in monthly_qs if m['month']]
     chart_collections = [float(m['total']) for m in monthly_qs]
 
-    prop_qs = reports_data.filter(status='Cleared') \
-        .values('contract__unit__property_asset__name').annotate(total=Sum('amount')).order_by('-total')
-    chart_props = [p['contract__unit__property_asset__name'] for p in prop_qs]
-    chart_prop_rev = [float(p['total']) for p in prop_qs]
+        # 2. Multi-Layered Property Revenue (Cleared + Replaced/Partial)
+    raw_prop_qs = reports_data.values('contract__unit__property_asset__name', 'status').annotate(
+        total=Sum('amount'))
+    prop_dict = {}
+    for p in raw_prop_qs:
+        p_name = p['contract__unit__property_asset__name']
+        clean_status = str(p['status']).strip() if p['status'] else 'Unknown'
 
-    # --- THE FIX: Stripping invisible spaces to crush chart duplicates ---
+        if clean_status in ['Cleared', 'Replaced/Partial']:
+            if p_name not in prop_dict:
+                prop_dict[p_name] = {'Cleared': 0.0, 'Replaced': 0.0}
+
+            if clean_status == 'Cleared':
+                prop_dict[p_name]['Cleared'] += float(p['total'] or 0)
+            elif clean_status == 'Replaced/Partial':
+                prop_dict[p_name]['Replaced'] += float(p['total'] or 0)
+
+    sorted_props = sorted(prop_dict.items(), key=lambda x: x[1]['Cleared'] + x[1]['Replaced'], reverse=True)
+    chart_props = [p[0] for p in sorted_props]
+    chart_prop_cleared = [p[1]['Cleared'] for p in sorted_props]
+    chart_prop_replaced = [p[1]['Replaced'] for p in sorted_props]
+
+        # 3. Status Breakdown Pie
     raw_status_qs = reports_data.values('status').annotate(total=Sum('amount'))
     status_dict = {}
     for s in raw_status_qs:
@@ -532,7 +551,7 @@ def owner_reports(request, landlord_id):
     chart_statuses = list(status_dict.keys())
     chart_status_totals = list(status_dict.values())
 
-    # --- THE FIX: Apply the exact same search filters to the Rent Trend Graph ---
+        # 4. Rent Growth Bar Chart (THE MISSING LINK WAS HERE)
     contract_qs = Contract.objects.filter(unit__property_asset__owner=landlord, start_date__isnull=False)
     if prop_filter: contract_qs = contract_qs.filter(unit__property_asset_id=prop_filter)
     if unit_filter: contract_qs = contract_qs.filter(unit__unit_number__icontains=unit_filter)
@@ -540,15 +559,18 @@ def owner_reports(request, landlord_id):
     if contract_status_filter: contract_qs = contract_qs.filter(status=contract_status_filter)
 
     rent_trend_qs = contract_qs.annotate(year=TruncYear('start_date')) \
-        .values('year').annotate(avg_rent=Avg('net_rent_amount')).order_by('year')
-
+            .values('year').annotate(avg_rent=Avg('net_rent_amount')).order_by('year')
     chart_years = [y['year'].strftime("%Y") for y in rent_trend_qs if y['year']]
     chart_avg_rents = [float(y['avg_rent']) for y in rent_trend_qs]
+
+        # Package it all up for the frontend
     analytics = {
-        'months': json.dumps(chart_months), 'collections': json.dumps(chart_collections),
-        'props': json.dumps(chart_props), 'prop_rev': json.dumps(chart_prop_rev),
-        'statuses': json.dumps(chart_statuses), 'status_totals': json.dumps(chart_status_totals),
-        'years': json.dumps(chart_years), 'avg_rents': json.dumps(chart_avg_rents),
+            'months': json.dumps(chart_months), 'collections': json.dumps(chart_collections),
+            'props': json.dumps(chart_props),
+            'prop_cleared': json.dumps(chart_prop_cleared),
+            'prop_replaced': json.dumps(chart_prop_replaced),
+            'statuses': json.dumps(chart_statuses), 'status_totals': json.dumps(chart_status_totals),
+            'years': json.dumps(chart_years), 'avg_rents': json.dumps(chart_avg_rents),
     }
 
     # ==========================================

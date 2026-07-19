@@ -161,7 +161,7 @@
     <!-- 2. Property Revenue Doughnut -->
     <div class="chart-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h4 style="margin: 0; color: var(--text-main); font-size: 1.05rem;">Revenue by Property</h4>
+            <h4 style="margin: 0; color: var(--text-main); font-size: 1.05rem;">Realized Revenue by Property</h4>
             <div>
                 <button type="button" class="chart-btn" onclick="downloadChart('propChart', 'Revenue_by_Property')" title="Download PNG"><i class="fa-solid fa-download"></i></button>
                 <button type="button" class="chart-btn" onclick="toggleFullscreen(this)" title="Fullscreen"><i class="fa-solid fa-expand"></i></button>
@@ -248,17 +248,18 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     // Load Data Passed from Django
+   // Load Data Passed from Django
     const months = {{ analytics.months|safe }};
     const collections = {{ analytics.collections|safe }};
     const props = {{ analytics.props|safe }};
-    const propRev = {{ analytics.prop_rev|safe }};
+    const propCleared = {{ analytics.prop_cleared|safe }};     // Outer ring data
+    const propReplaced = {{ analytics.prop_replaced|safe }};   // Inner ring data
     const statuses = {{ analytics.statuses|safe }};
     const statusTotals = {{ analytics.status_totals|safe }};
     const years = {{ analytics.years|safe }};
     const avgRents = {{ analytics.avg_rents|safe }};
 
     const formatCurrency = (value) => 'AED ' + value.toLocaleString(undefined, {minimumFractionDigits: 0});
-
 
 
     // --- NEW: Force white background for downloaded images ---
@@ -317,22 +318,49 @@
         }
     });
 
-    // 2. Property Doughnut Chart
+   // 2. Property Doughnut Chart (Concentric Rings)
+    const propertyBaseColors = ['#d4af37', '#1e3a8a', '#10b981', '#ef4444', '#8b5cf6', '#f59e0b', '#64748b'];
+    // Automatically add 60% transparency to the base colors for the inner ring!
+    const propertyInnerColors = propertyBaseColors.map(color => color + '99');
+
     new Chart(document.getElementById('propChart'), {
         type: 'doughnut',
         data: {
             labels: props,
-            datasets: [{
-                data: propRev,
-                backgroundColor: ['#d4af37', '#1e3a8a', '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#64748b']
-            }]
+            datasets: [
+                {
+                    label: 'Cleared',
+                    data: propCleared,
+                    backgroundColor: propertyBaseColors, // Outer ring (Solid colors)
+                    borderWidth: 2,
+                    hoverOffset: 4
+                },
+                {
+                    label: 'Replaced/Partial',
+                    data: propReplaced,
+                    backgroundColor: propertyInnerColors, // Inner ring (Faded colors)
+                    borderWidth: 2,
+                    hoverOffset: 4
+                }
+            ]
         },
         options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { tooltip: { callbacks: { label: function(ctx) { return ' ' + formatCurrency(ctx.raw); } } } }
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        // Custom Tooltip: "Muhammed Yousuf Bldg (Cleared): AED X"
+                        label: function(ctx) {
+                            const propName = ctx.label;
+                            const statusName = ctx.dataset.label;
+                            return ` ${propName} (${statusName}): ${formatCurrency(ctx.raw)}`;
+                        }
+                    }
+                }
+            }
         }
     });
-
     // 3. Rent Growth Bar Chart
     new Chart(document.getElementById('growthChart'), {
         type: 'bar',
