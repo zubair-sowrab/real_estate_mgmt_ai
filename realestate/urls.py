@@ -39,5 +39,6 @@ path('owner/<int:landlord_id>/approvals/', views.owner_approvals, name='owner_ap
 # Reports Engine
     path('owner/<int:landlord_id>/reports/', views.owner_reports, name='owner_reports'),
 path('owner/<int:landlord_id>/occupancy/', views.owner_occupancy_status, name='owner_occupancy_status'),
+path('owner/<int:landlord_id>/cashflow/', views.owner_cashflow, name='owner_cashflow'),
 
 ]

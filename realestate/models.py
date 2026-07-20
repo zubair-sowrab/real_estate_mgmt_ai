@@ -104,6 +104,49 @@ class Contract(models.Model):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
+    @property
+    def extras_amount(self):
+        bal = self.total_amount - self.net_rent_amount
+        return bal if bal > 0 else 0
+
+    @property
+    def rent_collections(self):
+        # SAFE INVERSE LOGIC: Assume it is Rent UNLESS it explicitly names an extra fee!
+        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit']
+        sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
+
+        rent_items = []
+        for c in sorted_cols:
+            part_text = str(c.particular).lower() if c.particular else ""
+            # If the extra keywords are NOT in the text, it is Rent!
+            if not any(k in part_text for k in extra_keywords):
+                rent_items.append(c)
+        return rent_items
+
+    @property
+    def extra_collections(self):
+        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit']
+        sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
+
+        extra_items = []
+        for c in sorted_cols:
+            part_text = str(c.particular).lower() if c.particular else ""
+            # If an extra keyword IS found, isolate it here!
+            if any(k in part_text for k in extra_keywords):
+                extra_items.append(c)
+        return extra_items
+
+    @property
+    def total_paid(self):
+        # BULLETPROOF STATUS CHECK: Handles both "Cleared" and "Posted" to survive your Find & Replace!
+        valid_statuses = ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']
+        return sum(c.amount for c in self.rent_collections if c.status in valid_statuses)
+
+    @property
+    def remaining_balance(self):
+        bal = self.net_rent_amount - self.total_paid
+        return bal if bal > 0 else 0
+
     def __str__(self):
         return f"{self.tenant.full_name} - {self.unit.unit_number} ({self.status})"
 
@@ -118,7 +161,7 @@ class Collection(models.Model):
         ('Pending PDC', 'Pending PDC'),
         ('Bounced', 'Bounced'),
     ]
-
+    particular = models.CharField(max_length=255, default='Rent')
     pact_transaction_id = models.CharField(max_length=100, unique=True)
     contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name='collections')
 
@@ -211,3 +254,24 @@ class ApprovalDocument(models.Model):
 
     def __str__(self):
         return f"{self.doc_no} - {self.status}"
+
+
+class BankDeposit(models.Model):
+    voucher_no = models.CharField(max_length=100, unique=True)
+    doc_abbr = models.CharField(max_length=10, blank=True, null=True)
+    doc_prefix = models.CharField(max_length=10, blank=True, null=True)
+    date = models.DateField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    narration = models.TextField(blank=True, null=True)
+
+    # --- THE NEW PACT COLUMNS ---
+    tenant = models.CharField(max_length=255, blank=True, null=True)
+    unit = models.CharField(max_length=100, blank=True, null=True)
+    tower = models.CharField(max_length=255, blank=True, null=True)
+    cheque_no = models.CharField(max_length=100, blank=True, null=True)
+    cheque_date = models.CharField(max_length=100, blank=True, null=True)
+
+    last_updated = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.voucher_no} - AED {self.amount}"

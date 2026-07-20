@@ -13,7 +13,7 @@ import csv
 from django.http import HttpResponse
 
 from .models import Landlord, Property, Unit, Contract, Collection, Tenant, DocumentFolder, DocumentFile, \
-    ApprovalDocument, PropertyDocument, SyncLog
+    ApprovalDocument, PropertyDocument, SyncLog, BankDeposit
 
 hidden_accounts = ['Landlord (ID: 1)', 'YBN General Portfolio', 'Accounts', 'Output VAT on Sale']
 
@@ -51,19 +51,17 @@ def get_property_expanded_stats(property_obj):
             # Throw all contracts into this sub-unit's master pool
             expanded_dict[sub]['all_contracts'].extend(unit_contracts)
 
-    # PASS 2: Determine occupancy strictly by the absolute newest contract
+        # PASS 2: Determine occupancy strictly by the absolute newest contract
     for sub, data in expanded_dict.items():
         if not data['all_contracts']:
+            data['latest_contract'] = None  # <--- ADD THIS
             continue
-
-        # Find the contract with the absolute newest start & end date across ALL overlapping strings
         newest_contract = max(data['all_contracts'], key=lambda c: (c.start_date, c.end_date))
+        data['latest_contract'] = newest_contract  # <--- ADD THIS
 
-        # If the absolute newest contract is Active or Holdover, the unit is Occupied!
         if newest_contract.status not in ['Terminated', 'Closed']:
             data['is_occupied'] = True
             data['tenant'] = newest_contract.tenant
-
     expanded_units = list(expanded_dict.values())
     total_count = len(expanded_units)
     occupied_count = sum(1 for eu in expanded_units if eu['is_occupied'])
@@ -340,7 +338,7 @@ def owner_view_properties(request, landlord_id):
             return HttpResponseForbidden("<h1>403 - Security Violation</h1>")
 
     properties = Property.objects.filter(owner=landlord).prefetch_related(
-        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant'))
+        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections'))
     )
     property_data = []
 
@@ -442,7 +440,7 @@ def owner_occupancy_status(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
 
     properties = Property.objects.filter(owner=landlord).prefetch_related(
-        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant'))
+        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections'))
     )
 
     property_data = []
@@ -717,3 +715,91 @@ def delete_property_document(request, landlord_id, doc_id):
         if doc.file: doc.file.delete()
         doc.delete()
     return redirect('owner_view_properties', landlord_id=landlord_id)
+
+
+@login_required(login_url='/login/')
+def owner_cashflow(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    today_str = timezone.now().date().strftime("%Y-%m-%d")
+
+    # 1. SPLIT FILTERS: In Hand (Physical) vs In Bank (Deposited)
+    date_from_hand = request.GET.get('date_from_hand', today_str)
+    date_to_hand = request.GET.get('date_to_hand', today_str)
+
+    date_from_bank = request.GET.get('date_from_bank', today_str)
+    date_to_bank = request.GET.get('date_to_bank', today_str)
+
+    search_query = request.GET.get('search', '').strip()
+
+    # 2. STRICT MAPPING: Using PACT Landlord ID (e.g., '16')
+    pact_ll_id = str(landlord.pact_landlord_id).strip()
+
+    prefix_map = {
+        '14': ['05'],
+        '15': ['07'],
+        '16': ['08'],
+        '17': ['02'],
+        '18': ['09'],
+        '19': ['06']
+    }
+
+    # If PACT ID is 16, this pulls '08'. We then add '01' (Edrak) and '03' (Enjaz) for everyone.
+    allowed_prefixes = prefix_map.get(pact_ll_id, []) + ['01', '03']
+
+    # Fetch ONLY Vouchers matching those specific prefixes
+    vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
+
+    if search_query:
+        vouchers = vouchers.filter(Q(narration__icontains=search_query) | Q(voucher_no__icontains=search_query))
+
+    # 3. SPLIT VOUCHERS BY THEIR RESPECTIVE DATES
+    # Apply Hand Dates to Physical Vouchers
+        # Apply Hand Dates to Physical Vouchers (Added 'CPO')
+    in_hand_vouchers = vouchers.filter(
+        doc_abbr__in=['CRV', 'CRO', 'PDR', 'CBR', 'CPO'],
+        date__gte=date_from_hand, date__lte=date_to_hand
+    ).order_by('-date')
+
+    # Apply Bank Dates to Deposit Vouchers
+    in_bank_vouchers = vouchers.filter(
+        doc_abbr__in=['BRV', 'CRT', 'CRVM'],
+        date__gte=date_from_bank, date__lte=date_to_bank
+    ).order_by('-date')
+
+
+
+    total_in_hand = in_hand_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
+    total_in_bank = in_bank_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
+
+    # 4. TENANT COLLECTIONS (Filtered by Hand Date since they are receipts)
+    collections_qs = Collection.objects.filter(
+        contract__unit__property_asset__owner=landlord,
+        due_date__gte=date_from_hand, due_date__lte=date_to_hand
+    ).select_related('contract__tenant', 'contract__unit__property_asset')
+
+    if search_query:
+        collections_qs = collections_qs.filter(
+            Q(contract__tenant__full_name__icontains=search_query) |
+            Q(cheque_number__icontains=search_query)
+        )
+
+    context = {
+        'landlord': landlord,
+        'in_hand_vouchers': in_hand_vouchers,
+        'in_bank_vouchers': in_bank_vouchers,
+        'collections': collections_qs,
+        'total_in_hand': total_in_hand,
+        'total_in_bank': total_in_bank,
+        'filters': {
+            'date_from_hand': date_from_hand, 'date_to_hand': date_to_hand,
+            'date_from_bank': date_from_bank, 'date_to_bank': date_to_bank,
+            'search': search_query
+        },
+        'notifications': get_dynamic_notifications(landlord),
+        'notif_count': len(get_dynamic_notifications(landlord))
+    }
+    return render(request, 'realestate/cashflow.html', context)

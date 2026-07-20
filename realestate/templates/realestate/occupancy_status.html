@@ -4,6 +4,17 @@
 
 {% block extra_css %}
 <style>
+
+
+    /* Ledger Modal Styles */
+    .ledger-modal { margin: auto; padding: 0; border: none; border-radius: 8px; width: 95%; max-width: 850px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+    .ledger-modal::backdrop { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); }
+    .dialog-header { background: var(--dark-sidebar); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
+    .close-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; opacity: 0.7; transition: 0.2s; }
+    .close-btn:hover { opacity: 1; transform: scale(1.1); color: var(--primary-gold); }
+
+
+
     .page-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 30px; color: var(--text-main); }
     .property-card { background: var(--card-bg); border: 1px solid var(--border-light); border-radius: 8px; margin-bottom: 15px; overflow: hidden; }
     .property-header { padding: 20px 25px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; background: var(--card-bg); transition: background 0.2s ease; }
@@ -53,15 +64,145 @@
         <div class="units-container">
             <div class="units-grid">
                 {% for eu in data.expanded_units %}
-                <div class="unit-box">
-                    <span class="unit-name">{{ eu.unit_number }}</span>
+               <div class="unit-box" style="flex-direction: column; align-items: stretch; gap: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="unit-name">{{ eu.unit_number }}</span>
+                        {% if eu.is_occupied %}
+                            <span class="status-badge badge-occupied" title="{{ eu.tenant.full_name }}"><i class="fa-solid fa-user"></i> {{ eu.tenant.full_name|truncatechars:18 }}</span>
+                        {% else %}
+                            <span class="status-badge badge-vacant"><i class="fa-solid fa-xmark"></i> Vacant</span>
+                        {% endif %}
+                    </div>
 
-                    {% if eu.is_occupied %}
-                        <span class="status-badge badge-occupied" title="{{ eu.tenant.full_name }}">
-                            <i class="fa-solid fa-user"></i> {{ eu.tenant.full_name|truncatechars:18 }}
-                        </span>
-                    {% else %}
-                        <span class="status-badge badge-vacant"><i class="fa-solid fa-xmark"></i> Vacant</span>
+                  <!-- THE NEW FINANCIAL BREAKDOWN & PACT LEDGER -->
+                    {% if eu.is_occupied and eu.latest_contract %}
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-size: 0.85rem; margin-top: 10px;">
+                        <div style="color: var(--text-main); font-weight: 600; margin-bottom: 8px; font-size: 0.8rem;">
+                            <i class="fa-regular fa-calendar" style="color: var(--primary-gold);"></i> {{ eu.latest_contract.start_date|date:"d M Y" }} &rarr; {{ eu.latest_contract.end_date|date:"d M Y" }}
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="color: #64748b;">Total Rent:</span> <strong style="color: var(--text-main);">AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                            <span style="color: #64748b;">Rent Paid:</span> <strong style="color: var(--success);">AED {{ eu.latest_contract.total_paid|floatformat:"2g" }}</strong>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 6px; margin-top: 6px;">
+                            <span style="color: #64748b; font-weight: bold;">Rent Balance:</span> <strong style="color: var(--danger); font-size: 0.95rem;">AED {{ eu.latest_contract.remaining_balance|floatformat:"2g" }}</strong>
+                        </div>
+
+                        <!-- EXTRAS BOX -->
+                        {% if eu.latest_contract.extras_amount > 0 %}
+                        <div style="margin-top: 10px; background: #fdf2f8; border: 1px solid #fbcfe8; padding: 8px; border-radius: 4px;">
+                            <span style="color: #9d174d; font-size: 0.75rem; font-weight: 600;">+ Extras (Tasdeeq, etc): AED {{ eu.latest_contract.extras_amount|floatformat:"2g" }}</span>
+                            <ul style="margin: 4px 0 0 15px; padding: 0; color: #be185d; font-size: 0.7rem;">
+                                {% for ext in eu.latest_contract.extra_collections %}
+                                <li>{{ ext.particular }}: AED {{ ext.amount|floatformat:"2g" }} ({{ ext.status }})</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+
+                        <!-- TENANT LEDGER BUTTON -->
+                        <button type="button"
+                                style="margin-top: 10px; width: 100%; background: white; border: 1px solid var(--primary-gold); color: var(--primary-gold); padding: 8px; border-radius: 4px; font-weight: 600; cursor: pointer; transition: 0.2s;"
+                                onclick="document.getElementById('ledger-{{ eu.latest_contract.id }}').showModal()"
+                                onmouseover="this.style.background='var(--primary-gold)'; this.style.color='white';"
+                                onmouseout="this.style.background='white'; this.style.color='var(--primary-gold)';">
+                            <i class="fa-solid fa-file-invoice-dollar"></i> View Tenant Ledger
+                        </button>
+
+                        <!-- PACT-STYLE LEDGER MODAL -->
+                        <dialog id="ledger-{{ eu.latest_contract.id }}" class="ledger-modal">
+                            <div class="dialog-header">
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Tenant Ledger (Rent Only)</h3>
+                                <button class="close-btn" type="button" onclick="document.getElementById('ledger-{{ eu.latest_contract.id }}').close()"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+
+                            <div style="background: #f8fafc; padding: 20px; max-height: 75vh; overflow-y: auto;">
+                                <div style="background: white; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+
+                                    <!-- Ledger Header -->
+                                    <div style="padding: 15px 20px; border-bottom: 2px solid var(--primary-gold); display: flex; justify-content: space-between; background: #fffbeb;">
+                                        <div style="font-size: 0.9rem; line-height: 1.5;">
+                                            <strong style="color: #b45309;">Tenant Name:</strong> <span style="color: var(--text-main); font-weight: 600;">{{ eu.tenant.full_name }}</span><br>
+                                            <strong style="color: #b45309;">Unit No:</strong> {{ eu.unit_number }}<br>
+                                            <strong style="color: #b45309;">Contract Period:</strong> {{ eu.latest_contract.start_date|date:"d/m/Y" }} to {{ eu.latest_contract.end_date|date:"d/m/Y" }}
+                                        </div>
+                                        <div style="text-align: right; font-size: 0.9rem; line-height: 1.5;">
+                                            <strong style="color: #047857;">Total Rent:</strong> AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}<br>
+                                            <strong style="color: #047857;">Rent Paid:</strong> AED {{ eu.latest_contract.total_paid|floatformat:"2g" }}<br>
+                                            <strong style="color: var(--danger);">Rent Balance: AED {{ eu.latest_contract.remaining_balance|floatformat:"2g" }}</strong>
+                                        </div>
+                                    </div>
+
+                                    <!-- Ledger Table -->
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                        <thead style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
+                                            <tr>
+                                                <th style="padding: 10px 15px; text-align: left; color: #475569;">Doc Date</th>
+                                                <th style="padding: 10px 15px; text-align: left; color: #475569;">Particular / Status</th>
+                                                <th style="padding: 10px 15px; text-align: left; color: #475569;">Chq No</th>
+                                                <th style="padding: 10px 15px; text-align: right; color: #475569;">Debit (Dr)</th>
+                                                <th style="padding: 10px 15px; text-align: right; color: #475569;">Credit (Cr)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="background: #e2e8f0; font-weight: bold; color: var(--dark-sidebar);">
+                                                <td colspan="5" style="padding: 8px 15px; color: #b45309;">Rent Receivable {{ eu.tower }}</td>
+                                            </tr>
+                                            <!-- Contract Rent Line -->
+                                            <tr style="border-bottom: 1px solid #f1f5f9;">
+                                                <td style="padding: 10px 15px;">{{ eu.latest_contract.start_date|date:"d-m-Y" }}</td>
+                                                <td style="padding: 10px 15px;">Tenancy Contract (Net Rent)</td>
+                                                <td style="padding: 10px 15px;">-</td>
+                                                <td style="padding: 10px 15px; text-align: right; font-weight: bold; color: var(--text-main);">{{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</td>
+                                                <td style="padding: 10px 15px; text-align: right;"></td>
+                                            </tr>
+
+                                            <!-- ONLY RENT COLLECTIONS -->
+                                            {% for col in eu.latest_contract.rent_collections %}
+                                                {% if col.status != 'Pending PDC' %}
+                                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                                    <td style="padding: 10px 15px;">{{ col.due_date|date:"d-m-Y" }}</td>
+                                                    <td style="padding: 10px 15px;">
+                                                        {{ col.particular }} ({{ col.payment_type }}) -
+                                                        <b style="{% if col.status == 'Cleared' %}color:var(--success);{% elif col.status == 'Bounced' %}color:var(--danger);{% else %}color:var(--warning);{% endif %}">{{ col.status }}</b>
+                                                    </td>
+                                                    <td style="padding: 10px 15px;">{{ col.cheque_number|default:"-" }}</td>
+                                                    <td style="padding: 10px 15px; text-align: right;"></td>
+                                                    <td style="padding: 10px 15px; text-align: right; font-weight: bold; color: {% if col.status == 'Cleared' %}var(--success){% else %}var(--text-main){% endif %};">{{ col.amount|floatformat:"2g" }}</td>
+                                                </tr>
+                                                {% endif %}
+                                            {% endfor %}
+
+                                            <!-- GROUP 2: List Of PDCs -->
+                                            <tr style="background: #e2e8f0; font-weight: bold; color: var(--dark-sidebar);">
+                                                <td colspan="5" style="padding: 8px 15px;">List Of PDCs</td>
+                                            </tr>
+                                            {% for col in eu.latest_contract.rent_collections %}
+                                                {% if col.status == 'Pending PDC' %}
+                                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                                    <td style="padding: 10px 15px;">{{ col.due_date|date:"d-m-Y" }}</td>
+                                                    <td style="padding: 10px 15px;">PDC Receivable</td>
+                                                    <td style="padding: 10px 15px;">{{ col.cheque_number|default:"-" }}</td>
+                                                    <td style="padding: 10px 15px; text-align: right;"></td>
+                                                    <td style="padding: 10px 15px; text-align: right; font-weight: bold; color: var(--text-main);">{{ col.amount|floatformat:"2g" }}</td>
+                                                </tr>
+                                                {% endif %}
+                                            {% endfor %}
+
+                                            <tr style="background: #f8fafc; border-top: 2px solid #cbd5e1; font-weight: bold; font-size: 0.95rem;">
+                                                <td colspan="3" style="padding: 15px; text-align: right; text-transform: uppercase; color: var(--dark-sidebar);">Report Total</td>
+                                                <td style="padding: 15px; text-align: right; color: var(--text-main);">{{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</td>
+                                                <td style="padding: 15px; text-align: right; color: var(--success);">{{ eu.latest_contract.total_paid|floatformat:"2g" }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </dialog>
+                    </div>
                     {% endif %}
                 </div>
                 {% empty %}
@@ -79,7 +220,13 @@
 {% block extra_js %}
 <script>
     function toggleProperty(element) {
-        if(event.target.closest('.units-container')) return;
+        // Prevent row collapsing if the user clicks ANY button (like the Ledger button)
+        if(event.target.tagName.toLowerCase() === 'button' || event.target.closest('button')) {
+            return;
+        }
+        if(event.target.closest('.units-container')) {
+            return;
+        }
         element.classList.toggle('active');
     }
 </script>
