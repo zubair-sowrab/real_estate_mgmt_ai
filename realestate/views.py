@@ -748,7 +748,7 @@ def owner_cashflow(request, landlord_id):
     }
 
     # If PACT ID is 16, this pulls '08'. We then add '01' (Edrak) and '03' (Enjaz) for everyone.
-    allowed_prefixes = prefix_map.get(pact_ll_id, []) + ['01', '03']
+    allowed_prefixes = prefix_map.get(pact_ll_id, []) + []
 
     # Fetch ONLY Vouchers matching those specific prefixes
     vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
