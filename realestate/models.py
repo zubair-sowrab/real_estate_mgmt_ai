@@ -105,32 +105,85 @@ class Contract(models.Model):
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
     @property
-    def extras_amount(self):
-        bal = self.total_amount - self.net_rent_amount
-        return bal if bal > 0 else 0
-
-    @property
     def rent_collections(self):
-        # Sorts and grabs ONLY collections labeled 'Rent'
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
-        return [c for c in sorted_cols if not c.particular or 'rent' in c.particular.lower()]
+        rent_items = []
+
+        # Word filter fallback
+        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'vat', 'admin', 'fee', 'charge']
+
+        for c in sorted_cols:
+            part_text = str(c.particular).strip().lower()
+
+            # PACT ID LOGIC: If it is purely a number, it MUST be '15' (Rent).
+            # This instantly blocks '28' (Tasdeeq) and '31' (Deposit).
+            if part_text.isdigit():
+                if part_text == '15':
+                    rent_items.append(c)
+                continue  # Skip all other numbers
+
+            # TEXT LOGIC: If it contains extra keywords, block it.
+            if any(k in part_text for k in extra_keywords):
+                continue
+
+            # If it's blank, "PDC Receivable", or text without extra fees, it's Rent.
+            rent_items.append(c)
+
+        return rent_items
 
     @property
     def extra_collections(self):
-        # Sorts and grabs Tasdeeq, Sewerage, etc.
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
-        return [c for c in sorted_cols if c.particular and 'rent' not in c.particular.lower()]
+        extra_items = []
+
+        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'vat', 'admin', 'fee', 'charge']
+
+        for c in sorted_cols:
+            part_text = str(c.particular).strip().lower()
+
+            # PACT ID LOGIC: If it's a number and NOT '15', it's an Extra Fee!
+            if part_text.isdigit():
+                if part_text != '15':
+                    extra_items.append(c)
+                continue
+
+            # TEXT LOGIC: If it contains extra keywords, it's an Extra Fee!
+            if any(k in part_text for k in extra_keywords):
+                extra_items.append(c)
+
+        return extra_items
 
     @property
     def total_paid(self):
-        # ONLY sum the Rent collections, successfully counting Replacements!
-        valid_statuses = ['Cleared', 'Pending PDC', 'Replaced/Partial', 'Replaced']
+        # RESTORED: Replaced and Partial cheques are active credits!
+        valid_statuses = ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']
         return sum(c.amount for c in self.rent_collections if c.status in valid_statuses)
 
     @property
     def remaining_balance(self):
         bal = self.net_rent_amount - self.total_paid
         return bal if bal > 0 else 0
+
+    @property
+    def all_valid_collections(self):
+        # RESTORED: Replaced and Partial cheques are active credits!
+        valid_statuses = ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']
+        return [c for c in self.collections.all() if c.status in valid_statuses]
+
+    @property
+    def total_paid_all(self):
+        return sum(c.amount for c in self.all_valid_collections)
+
+    @property
+    def remaining_balance_all(self):
+        bal = self.total_amount - self.total_paid_all
+        return bal if bal > 0 else 0
+
+    @property
+    def remaining_balance_all(self):
+        bal = self.total_amount - self.total_paid_all
+        return bal if bal > 0 else 0
+
 
     def __str__(self):
         return f"{self.tenant.full_name} - {self.unit.unit_number} ({self.status})"

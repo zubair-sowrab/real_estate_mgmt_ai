@@ -792,7 +792,7 @@ def owner_cashflow(request, landlord_id):
         'in_hand_vouchers': in_hand_vouchers,
         'in_bank_vouchers': in_bank_vouchers,
         'collections': collections_qs,
-        'total_in_hand': total_in_hand,
+        'total_in_hand':total_in_hand,
         'total_in_bank': total_in_bank,
         'filters': {
             'date_from_hand': date_from_hand, 'date_to_hand': date_to_hand,
