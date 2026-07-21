@@ -110,24 +110,27 @@ class Contract(models.Model):
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
         rent_items = []
 
-        # Word filter fallback
-        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'vat', 'admin', 'fee', 'charge']
+        # The VIP Whitelist: These ALWAYS go to Rent
+        rent_whitelist = ['parking', 'vat','Rent (Building Parking)']
+        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'admin', 'fee', 'charge']
 
         for c in sorted_cols:
             part_text = str(c.particular).strip().lower()
 
-            # PACT ID LOGIC: If it is purely a number, it MUST be '15' (Rent).
-            # This instantly blocks '28' (Tasdeeq) and '31' (Deposit).
             if part_text.isdigit():
                 if part_text == '15':
                     rent_items.append(c)
-                continue  # Skip all other numbers
+                continue
 
-            # TEXT LOGIC: If it contains extra keywords, block it.
+                # VIP CHECK: If it contains VAT or Parking, it is Rent!
+            if any(w in part_text for w in rent_whitelist):
+                rent_items.append(c)
+                continue
+
+            # Extra check
             if any(k in part_text for k in extra_keywords):
                 continue
 
-            # If it's blank, "PDC Receivable", or text without extra fees, it's Rent.
             rent_items.append(c)
 
         return rent_items
@@ -137,18 +140,22 @@ class Contract(models.Model):
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
         extra_items = []
 
-        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'vat', 'admin', 'fee', 'charge']
+        rent_whitelist = ['parking', 'vat','Rent (Building Parking)']
+        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'admin', 'fee', 'charge']
 
         for c in sorted_cols:
             part_text = str(c.particular).strip().lower()
 
-            # PACT ID LOGIC: If it's a number and NOT '15', it's an Extra Fee!
             if part_text.isdigit():
                 if part_text != '15':
                     extra_items.append(c)
                 continue
 
-            # TEXT LOGIC: If it contains extra keywords, it's an Extra Fee!
+            # VIP CHECK: If it contains VAT or Parking, skip it (leave it for Rent)
+            if any(w in part_text for w in rent_whitelist):
+                continue
+
+            # If it's an Extra, isolate it
             if any(k in part_text for k in extra_keywords):
                 extra_items.append(c)
 

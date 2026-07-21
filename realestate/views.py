@@ -768,62 +768,52 @@ def owner_cashflow(request, landlord_id):
 
     today_str = timezone.now().date().strftime("%Y-%m-%d")
 
-    # 1. SPLIT FILTERS: In Hand (Physical) vs In Bank (Deposited)
-    date_from_hand = request.GET.get('date_from_hand', today_str)
-    date_to_hand = request.GET.get('date_to_hand', today_str)
-
-    date_from_bank = request.GET.get('date_from_bank', today_str)
-    date_to_bank = request.GET.get('date_to_bank', today_str)
+    # 1. THE FIX: Only force 'today' on the very first page load.
+    # If the user clicks "Apply Filters" with empty boxes, allow boundless searching!
+    if 'date_from_hand' in request.GET:
+        date_from_hand = request.GET.get('date_from_hand', '').strip()
+        date_to_hand = request.GET.get('date_to_hand', '').strip()
+        date_from_bank = request.GET.get('date_from_bank', '').strip()
+        date_to_bank = request.GET.get('date_to_bank', '').strip()
+    else:
+        date_from_hand = today_str
+        date_to_hand = today_str
+        date_from_bank = today_str
+        date_to_bank = today_str
 
     search_query = request.GET.get('search', '').strip()
 
-    # 2. STRICT MAPPING: Using PACT Landlord ID (e.g., '16')
     pact_ll_id = str(landlord.pact_landlord_id).strip()
-
-    prefix_map = {
-        '14': ['05'],
-        '15': ['07'],
-        '16': ['08'],
-        '17': ['02'],
-        '18': ['09'],
-        '19': ['06']
-    }
-
-    # If PACT ID is 16, this pulls '08'. We then add '01' (Edrak) and '03' (Enjaz) for everyone.
+    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
     allowed_prefixes = prefix_map.get(pact_ll_id, []) + []
 
-    # Fetch ONLY Vouchers matching those specific prefixes
     vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
-
     if search_query:
         vouchers = vouchers.filter(Q(narration__icontains=search_query) | Q(voucher_no__icontains=search_query))
 
-    # 3. SPLIT VOUCHERS BY THEIR RESPECTIVE DATES
-    # Apply Hand Dates to Physical Vouchers
-        # Apply Hand Dates to Physical Vouchers (Added 'CPO')
-        # 3. SPLIT VOUCHERS BY THEIR RESPECTIVE DATES
-        # Apply Hand Dates to Physical Vouchers (Only CRV and CRO)
-    in_hand_vouchers = vouchers.filter(
-            doc_abbr__in=['CRV', 'CRO'],
-            date__gte=date_from_hand, date__lte=date_to_hand
-    ).order_by('-date')
+    # 2. DYNAMIC FILTERING: Only apply dates if the boxes actually have a value
+    in_hand_vouchers = vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('-date')
+    if date_from_hand:
+        in_hand_vouchers = in_hand_vouchers.filter(date__gte=date_from_hand)
+    if date_to_hand:
+        in_hand_vouchers = in_hand_vouchers.filter(date__lte=date_to_hand)
 
-        # Apply Bank Dates to Deposit Vouchers (Only BRV, CRT, CRVM)
-    in_bank_vouchers = vouchers.filter(
-            doc_abbr__in=['BRV', 'CRT', 'CRVM'],
-            date__gte=date_from_bank, date__lte=date_to_bank
-    ).order_by('-date')
-
-
+    in_bank_vouchers = vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('-date')
+    if date_from_bank:
+        in_bank_vouchers = in_bank_vouchers.filter(date__gte=date_from_bank)
+    if date_to_bank:
+        in_bank_vouchers = in_bank_vouchers.filter(date__lte=date_to_bank)
 
     total_in_hand = in_hand_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
     total_in_bank = in_bank_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
 
-    # 4. TENANT COLLECTIONS (Filtered by Hand Date since they are receipts)
-    collections_qs = Collection.objects.filter(
-        contract__unit__property_asset__owner=landlord,
-        due_date__gte=date_from_hand, due_date__lte=date_to_hand
-    ).select_related('contract__tenant', 'contract__unit__property_asset')
+    collections_qs = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
+        'contract__tenant', 'contract__unit__property_asset').order_by('-due_date')
+
+    if date_from_hand:
+        collections_qs = collections_qs.filter(due_date__gte=date_from_hand)
+    if date_to_hand:
+        collections_qs = collections_qs.filter(due_date__lte=date_to_hand)
 
     if search_query:
         collections_qs = collections_qs.filter(
