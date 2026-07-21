@@ -3,6 +3,7 @@ from django.db.models import Sum, Q, Prefetch
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models.functions import TruncMonth, TruncYear
+import re
 from django.db.models import Avg
 import json
 from django.http import HttpResponseForbidden
@@ -30,38 +31,39 @@ def get_property_expanded_stats(property_obj):
         if '-' not in u.unit_number:
             continue
 
-        sub_names = [n.strip() for n in u.unit_number.split(',') if n.strip()]
-        num_subs = len(sub_names)
-        apportioned_rent = float(u.base_rent) / num_subs if num_subs > 0 else 0
+        # THE FIX: Strip the colon and everything after it to fuse historical bulk-lease artifacts!
+        # Example: "AS001-S01...S05:2952" becomes the clean base name "AS001-S01...S05"
+        raw_name = u.unit_number.strip()
+        clean_name = raw_name.split(':')[0].strip()
 
-        # Grab all contracts associated with this specific database unit string
-        unit_contracts = list(u.contracts.all())
+        if clean_name not in expanded_dict:
+            expanded_dict[clean_name] = {
+                'unit_number': clean_name,
+                'is_occupied': False,
+                'tenant': None,
+                'original_unit': u,
+                'base_rent': float(u.base_rent),
+                'unit_type': u.unit_type,
+                'all_contracts': []
+            }
 
-        for sub in sub_names:
-            if sub not in expanded_dict:
-                expanded_dict[sub] = {
-                    'unit_number': sub,
-                    'is_occupied': False,
-                    'tenant': None,
-                    'original_unit': u,
-                    'base_rent': apportioned_rent,
-                    'unit_type': u.unit_type,
-                    'all_contracts': []
-                }
-            # Throw all contracts into this sub-unit's master pool
-            expanded_dict[sub]['all_contracts'].extend(unit_contracts)
+        # Throw all contracts from all historical PACT versions into this unified master pool
+        expanded_dict[clean_name]['all_contracts'].extend(list(u.contracts.all()))
 
-        # PASS 2: Determine occupancy strictly by the absolute newest contract
+    # PASS 2: Determine occupancy strictly by the absolute newest contract
     for sub, data in expanded_dict.items():
         if not data['all_contracts']:
-            data['latest_contract'] = None  # <--- ADD THIS
+            data['latest_contract'] = None
             continue
+
+        # This will now sort through 2022, 2023, 2024, 2025, and 2026 and pull ONLY the newest one!
         newest_contract = max(data['all_contracts'], key=lambda c: (c.start_date, c.end_date))
-        data['latest_contract'] = newest_contract  # <--- ADD THIS
+        data['latest_contract'] = newest_contract
 
         if newest_contract.status not in ['Terminated', 'Closed']:
             data['is_occupied'] = True
             data['tenant'] = newest_contract.tenant
+
     expanded_units = list(expanded_dict.values())
     total_count = len(expanded_units)
     occupied_count = sum(1 for eu in expanded_units if eu['is_occupied'])
@@ -444,17 +446,57 @@ def owner_occupancy_status(request, landlord_id):
     )
 
     property_data = []
+    global_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
+
     for p in properties:
         exp_units, t_count, _, _ = get_property_expanded_stats(p)
+
+        p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
+
+        unique_contracts = set()
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                unique_contracts.add(c)
+
+        for c in unique_contracts:
+            # We ONLY pull the Net Rent and the cheques here
+            p_stats['total_rent'] += float(c.net_rent_amount)
+
+            for col in c.rent_collections:
+                amt = float(col.amount)
+                if col.status in ['Cleared', 'Posted']:
+                    p_stats['paid'] += amt
+                elif col.status == 'Pending PDC':
+                    p_stats['pdc'] += amt
+                elif col.status == 'Bounced':
+                    p_stats['bounced'] += amt
+                elif col.status in ['Replaced/Partial', 'Replaced']:
+                    p_stats['replaced'] += amt
+
+        # --- THE FIX: YOUR EXACT FORMULA ---
+        # We calculate the balance for the building AFTER all cheques are summed,
+        # guaranteeing the visual cards and pie chart match perfectly.
+        calc_balance = p_stats['total_rent'] - (p_stats['paid'] + p_stats['pdc'] + p_stats['replaced'])
+        p_stats['balance'] = calc_balance if calc_balance > 0 else 0
+
+        # Add building stats to global pool
+        for k in global_stats:
+            global_stats[k] += p_stats[k]
+
         property_data.append({
             'property': p,
             'expanded_units': exp_units,
-            'total_count': t_count
+            'total_count': t_count,
+            'stats': p_stats,
+            'stats_json': json.dumps(p_stats)
         })
 
     return render(request, 'realestate/occupancy_status.html', {
         'landlord': landlord,
-        'property_data': property_data
+        'property_data': property_data,
+        'global_stats': global_stats,
+        'global_stats_json': json.dumps(global_stats)
     })
 
 
@@ -759,15 +801,17 @@ def owner_cashflow(request, landlord_id):
     # 3. SPLIT VOUCHERS BY THEIR RESPECTIVE DATES
     # Apply Hand Dates to Physical Vouchers
         # Apply Hand Dates to Physical Vouchers (Added 'CPO')
+        # 3. SPLIT VOUCHERS BY THEIR RESPECTIVE DATES
+        # Apply Hand Dates to Physical Vouchers (Only CRV and CRO)
     in_hand_vouchers = vouchers.filter(
-        doc_abbr__in=['CRV', 'CRO', 'PDR', 'CBR', 'CPO'],
-        date__gte=date_from_hand, date__lte=date_to_hand
+            doc_abbr__in=['CRV', 'CRO'],
+            date__gte=date_from_hand, date__lte=date_to_hand
     ).order_by('-date')
 
-    # Apply Bank Dates to Deposit Vouchers
+        # Apply Bank Dates to Deposit Vouchers (Only BRV, CRT, CRVM)
     in_bank_vouchers = vouchers.filter(
-        doc_abbr__in=['BRV', 'CRT', 'CRVM'],
-        date__gte=date_from_bank, date__lte=date_to_bank
+            doc_abbr__in=['BRV', 'CRT', 'CRVM'],
+            date__gte=date_from_bank, date__lte=date_to_bank
     ).order_by('-date')
 
 
@@ -792,7 +836,7 @@ def owner_cashflow(request, landlord_id):
         'in_hand_vouchers': in_hand_vouchers,
         'in_bank_vouchers': in_bank_vouchers,
         'collections': collections_qs,
-        'total_in_hand':total_in_hand,
+        'total_in_hand': total_in_hand,
         'total_in_bank': total_in_bank,
         'filters': {
             'date_from_hand': date_from_hand, 'date_to_hand': date_to_hand,

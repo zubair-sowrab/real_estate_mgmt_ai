@@ -7,7 +7,20 @@
 
 
     /* Ledger Modal Styles */
-    .ledger-modal { margin: auto; padding: 0; border: none; border-radius: 8px; width: 95%; max-width: 850px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+/* Ledger Modal Styles */
+    .ledger-modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        margin: 0;
+        padding: 0;
+        border: none;
+        border-radius: 8px;
+        width: 95%;
+        max-width: 850px;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+    }
     .ledger-modal::backdrop { background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(4px); }
     .dialog-header { background: var(--dark-sidebar); color: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; }
     .close-btn { background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer; opacity: 0.7; transition: 0.2s; }
@@ -45,7 +58,85 @@
 {% endblock %}
 
 {% block content %}
-<h1 class="page-title">Live Occupancy Status</h1>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+    <h1 class="page-title" style="margin: 0;">Live Occupancy Status</h1>
+    <button onclick="document.getElementById('rent-stats-modal').showModal()"
+            style="background: var(--primary-gold); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s;">
+        <i class="fa-solid fa-chart-pie"></i> Show Rent Stats
+    </button>
+</div>
+
+<!-- RENT STATS MODAL -->
+<dialog id="rent-stats-modal" class="ledger-modal" style="max-width: 1000px; max-height: 90vh;">
+    <div class="dialog-header">
+        <h3 style="margin: 0; font-size: 1.2rem;">Financial Overview (Active Contracts)</h3>
+        <button class="close-btn" type="button" onclick="document.getElementById('rent-stats-modal').close()"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <div style="background: #f8fafc; padding: 20px; overflow-y: auto; max-height: calc(90vh - 60px);">
+
+        <!-- GLOBAL PORTFOLIO SECTION -->
+        <h4 style="margin-top: 0; color: var(--dark-sidebar); border-bottom: 2px solid var(--primary-gold); padding-bottom: 5px;">Global Portfolio Stats</h4>
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px;">
+            <!-- KPI Cards -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #3b82f6;">
+                    <span style="color: #64748b; font-size: 0.85rem;">Total Net Rent</span><br>
+                    <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.total_rent|floatformat:"2g" }}</strong>
+                </div>
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #22c55e;">
+                    <span style="color: #64748b; font-size: 0.85rem;">Paid (Cleared/Cash)</span><br>
+                    <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.paid|floatformat:"2g" }}</strong>
+                </div>
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #eab308;">
+                    <span style="color: #64748b; font-size: 0.85rem;">Pending PDCs</span><br>
+                    <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.pdc|floatformat:"2g" }}</strong>
+                </div>
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #f97316;">
+                    <span style="color: #64748b; font-size: 0.85rem;">Replaced / Partial</span><br>
+                    <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.replaced|floatformat:"2g" }}</strong>
+                </div>
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #ef4444;">
+                    <span style="color: #64748b; font-size: 0.85rem;">Bounced (Info Only)</span><br>
+                    <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.bounced|floatformat:"2g" }}</strong>
+                </div>
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #94a3b8;">
+                    <span style="color: #64748b; font-size: 0.85rem;">Uncollected Balance</span><br>
+                    <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.balance|floatformat:"2g" }}</strong>
+                </div>
+            </div>
+            <!-- Global Pie Chart -->
+            <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; justify-content: center; align-items: center;">
+                <canvas id="globalChart" style="max-height: 200px;"></canvas>
+            </div>
+        </div>
+
+        <!-- INDIVIDUAL BUILDINGS SECTION -->
+        <h4 style="margin-top: 0; color: var(--dark-sidebar); border-bottom: 2px solid var(--primary-gold); padding-bottom: 5px;">Breakdown by Building</h4>
+
+        {% for pd in property_data %}
+        <div style="background: white; margin-bottom: 15px; border-radius: 8px; border: 1px solid #e2e8f0; padding: 15px;">
+            <h5 style="margin: 0 0 10px 0; font-size: 1rem; color: var(--text-main);"><i class="fa-solid fa-building" style="color: var(--primary-gold);"></i> {{ pd.property.name }}</h5>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
+                <!-- Building Data Text -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85rem;">
+                    <div><span style="color: #64748b;">Total Rent:</span> <strong style="color: #1e293b;">AED {{ pd.stats.total_rent|floatformat:"2g" }}</strong></div>
+                    <div><span style="color: #64748b;">Paid:</span> <strong style="color: #22c55e;">AED {{ pd.stats.paid|floatformat:"2g" }}</strong></div>
+                    <div><span style="color: #64748b;">Pending PDC:</span> <strong style="color: #eab308;">AED {{ pd.stats.pdc|floatformat:"2g" }}</strong></div>
+                    <div><span style="color: #64748b;">Replaced/Partial:</span> <strong style="color: #f97316;">AED {{ pd.stats.replaced|floatformat:"2g" }}</strong></div>
+                    <div><span style="color: #64748b;">Bounced:</span> <strong style="color: #ef4444;">AED {{ pd.stats.bounced|floatformat:"2g" }}</strong></div>
+                    <div><span style="color: #64748b;">Balance:</span> <strong style="color: #94a3b8;">AED {{ pd.stats.balance|floatformat:"2g" }}</strong></div>
+                </div>
+                <!-- Building Pie Chart -->
+                <div style="display: flex; justify-content: center; align-items: center; border-left: 1px solid #e2e8f0; padding-left: 15px;">
+                    <canvas id="chart-{{ pd.property.id }}" style="max-height: 120px;"></canvas>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</dialog>
 
 <div class="occupancy-list">
     {% for data in property_data %}
@@ -229,5 +320,59 @@
         }
         element.classList.toggle('active');
     }
+</script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    function toggleProperty(element) {
+        if(event.target.tagName.toLowerCase() === 'button' || event.target.closest('button')) {
+            return;
+        }
+        if(event.target.closest('.units-container')) {
+            return;
+        }
+        element.classList.toggle('active');
+    }
+
+    // Modal Chart Rendering
+    document.addEventListener("DOMContentLoaded", function() {
+        const chartConfig = {
+            type: 'doughnut',
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: {size: 10} } } } }
+        };
+
+        // Colors mapped strictly to 100% of Rent Value: [Paid, PDC, Replaced/Partial, Balance]
+        // Note: Bounced is kept OUT of the pie chart so the math perfectly equals 100%.
+        const bgColors = ['#22c55e', '#eab308', '#f97316', '#cbd5e1'];
+
+        // Render Global Chart
+        const globalStats = {{ global_stats_json|safe }};
+        if(globalStats.total_rent > 0) {
+            new Chart(document.getElementById('globalChart').getContext('2d'), {
+                ...chartConfig,
+                data: {
+                    labels: ['Paid (Cleared)', 'Pending PDC', 'Replaced/Partial', 'Uncollected Balance'],
+                    datasets: [{ data: [globalStats.paid, globalStats.pdc, globalStats.replaced, globalStats.balance], backgroundColor: bgColors, borderWidth: 0 }]
+                }
+            });
+        }
+
+        // Render Individual Property Charts
+        {% for pd in property_data %}
+            const stats_{{ pd.property.id }} = {{ pd.stats_json|safe }};
+            if(stats_{{ pd.property.id }}.total_rent > 0) {
+                new Chart(document.getElementById('chart-{{ pd.property.id }}').getContext('2d'), {
+                    ...chartConfig,
+                    data: {
+                        labels: ['Paid', 'PDC', 'Replaced', 'Balance'],
+                        datasets: [{ data: [stats_{{ pd.property.id }}.paid, stats_{{ pd.property.id }}.pdc, stats_{{ pd.property.id }}.replaced, stats_{{ pd.property.id }}.balance], backgroundColor: bgColors, borderWidth: 0 }]
+                    },
+                    options: { plugins: { legend: { display: false } } } // Hide legend on small building charts to save space
+                });
+            }
+        {% endfor %}
+    });
 </script>
 {% endblock %}

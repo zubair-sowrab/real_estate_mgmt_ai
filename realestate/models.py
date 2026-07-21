@@ -52,8 +52,9 @@ class Unit(models.Model):
 
     pact_unit_id = models.CharField(max_length=100, unique=True)
     property_asset = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='units')
-    unit_number = models.CharField(max_length=50)
-    unit_type = models.CharField(max_length=100)  # e.g., '2BHK', 'Retail Shop'
+    # THE FIX: Increased from 50 to 255 to stop PACT strings from getting corrupted!
+    unit_number = models.CharField(max_length=255)
+    unit_type = models.CharField(max_length=100)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Vacant')
     base_rent = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
