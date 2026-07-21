@@ -111,35 +111,20 @@ class Contract(models.Model):
 
     @property
     def rent_collections(self):
-        # SAFE INVERSE LOGIC: Assume it is Rent UNLESS it explicitly names an extra fee!
-        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit']
+        # Sorts and grabs ONLY collections labeled 'Rent'
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
-
-        rent_items = []
-        for c in sorted_cols:
-            part_text = str(c.particular).lower() if c.particular else ""
-            # If the extra keywords are NOT in the text, it is Rent!
-            if not any(k in part_text for k in extra_keywords):
-                rent_items.append(c)
-        return rent_items
+        return [c for c in sorted_cols if not c.particular or 'rent' in c.particular.lower()]
 
     @property
     def extra_collections(self):
-        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit']
+        # Sorts and grabs Tasdeeq, Sewerage, etc.
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
-
-        extra_items = []
-        for c in sorted_cols:
-            part_text = str(c.particular).lower() if c.particular else ""
-            # If an extra keyword IS found, isolate it here!
-            if any(k in part_text for k in extra_keywords):
-                extra_items.append(c)
-        return extra_items
+        return [c for c in sorted_cols if c.particular and 'rent' not in c.particular.lower()]
 
     @property
     def total_paid(self):
-        # BULLETPROOF STATUS CHECK: Handles both "Cleared" and "Posted" to survive your Find & Replace!
-        valid_statuses = ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']
+        # ONLY sum the Rent collections, successfully counting Replacements!
+        valid_statuses = ['Cleared', 'Pending PDC', 'Replaced/Partial', 'Replaced']
         return sum(c.amount for c in self.rent_collections if c.status in valid_statuses)
 
     @property
