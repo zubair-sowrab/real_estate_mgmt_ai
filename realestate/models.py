@@ -110,24 +110,25 @@ class Contract(models.Model):
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
         rent_items = []
 
-        # The VIP Whitelist: These ALWAYS go to Rent
-        rent_whitelist = ['parking', 'vat','Rent (Building Parking)']
+        # VIP Whitelist: Parking and VAT are strictly part of RENT
+        rent_whitelist = ['parking', 'vat']
         extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'admin', 'fee', 'charge']
 
         for c in sorted_cols:
             part_text = str(c.particular).strip().lower()
 
+            # PACT ID LOGIC: Pure numbers must be '15' for Rent
             if part_text.isdigit():
                 if part_text == '15':
                     rent_items.append(c)
                 continue
 
-                # VIP CHECK: If it contains VAT or Parking, it is Rent!
+                # VIP CHECK: Parking & VAT force their way into Rent!
             if any(w in part_text for w in rent_whitelist):
                 rent_items.append(c)
                 continue
 
-            # Extra check
+            # BLOCK EXTRAS: Tasdeeq, Deposits, etc.
             if any(k in part_text for k in extra_keywords):
                 continue
 
@@ -140,7 +141,7 @@ class Contract(models.Model):
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
         extra_items = []
 
-        rent_whitelist = ['parking', 'vat','Rent (Building Parking)']
+        rent_whitelist = ['parking', 'vat']
         extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'admin', 'fee', 'charge']
 
         for c in sorted_cols:
@@ -151,11 +152,10 @@ class Contract(models.Model):
                     extra_items.append(c)
                 continue
 
-            # VIP CHECK: If it contains VAT or Parking, skip it (leave it for Rent)
+            # Skip Parking & VAT so they aren't placed in Extras
             if any(w in part_text for w in rent_whitelist):
                 continue
 
-            # If it's an Extra, isolate it
             if any(k in part_text for k in extra_keywords):
                 extra_items.append(c)
 
