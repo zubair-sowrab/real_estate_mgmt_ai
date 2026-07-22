@@ -768,8 +768,7 @@ def owner_cashflow(request, landlord_id):
 
     today_str = timezone.now().date().strftime("%Y-%m-%d")
 
-    # 1. THE FIX: Only force 'today' on the very first page load.
-    # If the user clicks "Apply Filters" with empty boxes, allow boundless searching!
+    # 1. Date Filters Logic
     if 'date_from_hand' in request.GET:
         date_from_hand = request.GET.get('date_from_hand', '').strip()
         date_to_hand = request.GET.get('date_to_hand', '').strip()
@@ -783,15 +782,21 @@ def owner_cashflow(request, landlord_id):
 
     search_query = request.GET.get('search', '').strip()
 
+    # 2. Strict Mapping + Fallback Shield
     pact_ll_id = str(landlord.pact_landlord_id).strip()
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
-    allowed_prefixes = prefix_map.get(pact_ll_id, []) + []
+    allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-    vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
+    # FALLBACK: If landlord ID is not in prefix_map, don't block all vouchers!
+    if allowed_prefixes:
+        vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
+    else:
+        vouchers = BankDeposit.objects.all()
+
     if search_query:
         vouchers = vouchers.filter(Q(narration__icontains=search_query) | Q(voucher_no__icontains=search_query))
 
-    # 2. DYNAMIC FILTERING: Only apply dates if the boxes actually have a value
+    # 3. Dynamic Filtering
     in_hand_vouchers = vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('-date')
     if date_from_hand:
         in_hand_vouchers = in_hand_vouchers.filter(date__gte=date_from_hand)
@@ -807,25 +812,10 @@ def owner_cashflow(request, landlord_id):
     total_in_hand = in_hand_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
     total_in_bank = in_bank_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
 
-    collections_qs = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
-        'contract__tenant', 'contract__unit__property_asset').order_by('-due_date')
-
-    if date_from_hand:
-        collections_qs = collections_qs.filter(due_date__gte=date_from_hand)
-    if date_to_hand:
-        collections_qs = collections_qs.filter(due_date__lte=date_to_hand)
-
-    if search_query:
-        collections_qs = collections_qs.filter(
-            Q(contract__tenant__full_name__icontains=search_query) |
-            Q(cheque_number__icontains=search_query)
-        )
-
     context = {
         'landlord': landlord,
         'in_hand_vouchers': in_hand_vouchers,
         'in_bank_vouchers': in_bank_vouchers,
-        'collections': collections_qs,
         'total_in_hand': total_in_hand,
         'total_in_bank': total_in_bank,
         'filters': {
