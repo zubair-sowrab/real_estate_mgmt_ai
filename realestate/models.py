@@ -192,6 +192,17 @@ class Contract(models.Model):
         bal = self.total_amount - self.total_paid_all
         return bal if bal > 0 else 0
 
+    @property
+    def cleared_paid(self):
+        # STRICT MODE: Only counts physically deposited cash/clearances
+        return sum(c.amount for c in self.rent_collections if c.status in ['Cleared', 'Posted'])
+
+    @property
+    def strict_balance(self):
+        # STRICT MODE: Ignores PDCs and Replacements
+        bal = self.net_rent_amount - self.cleared_paid
+        return bal if bal > 0 else 0
+
 
     def __str__(self):
         return f"{self.tenant.full_name} - {self.unit.unit_number} ({self.status})"

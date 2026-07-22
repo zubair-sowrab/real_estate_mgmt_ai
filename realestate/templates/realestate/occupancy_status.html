@@ -58,8 +58,17 @@
 {% endblock %}
 
 {% block content %}
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-    <h1 class="page-title" style="margin: 0;">Live Occupancy Status</h1>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+    <div style="display: flex; align-items: center; gap: 20px;">
+        <h1 class="page-title" style="margin: 0;">Live Occupancy Status</h1>
+
+        <!-- THE NEW MODE TOGGLE BUTTONS -->
+        <div style="display: flex; gap: 5px; background: #e2e8f0; padding: 4px; border-radius: 8px;">
+            <a href="?mode=full" style="padding: 6px 15px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; transition: 0.2s; {% if view_mode != 'strict' %}background: white; color: var(--primary-gold); box-shadow: 0 1px 3px rgba(0,0,0,0.1);{% else %}color: #64748b;{% endif %}"><i class="fa-solid fa-list"></i> Full Details</a>
+            <a href="?mode=strict" style="padding: 6px 15px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 0.85rem; transition: 0.2s; {% if view_mode == 'strict' %}background: white; color: var(--primary-gold); box-shadow: 0 1px 3px rgba(0,0,0,0.1);{% else %}color: #64748b;{% endif %}"><i class="fa-solid fa-building-columns"></i> Credit / Debit</a>
+        </div>
+    </div>
+
     <button onclick="document.getElementById('rent-stats-modal').showModal()"
             style="background: var(--primary-gold); color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s;">
         <i class="fa-solid fa-chart-pie"></i> Show Rent Stats
@@ -69,7 +78,7 @@
 <!-- RENT STATS MODAL -->
 <dialog id="rent-stats-modal" class="ledger-modal" style="max-width: 1000px; max-height: 90vh;">
     <div class="dialog-header">
-        <h3 style="margin: 0; font-size: 1.2rem;">Financial Overview (Active Contracts)</h3>
+        <h3 style="margin: 0; font-size: 1.2rem;">Financial Overview {% if view_mode == 'strict' %}(Cleared / Deposited Only){% else %}(Active Contracts){% endif %}</h3>
         <button class="close-btn" type="button" onclick="document.getElementById('rent-stats-modal').close()"><i class="fa-solid fa-xmark"></i></button>
     </div>
 
@@ -85,9 +94,11 @@
                     <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.total_rent|floatformat:"2g" }}</strong>
                 </div>
                 <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #22c55e;">
-                    <span style="color: #64748b; font-size: 0.85rem;">Paid (Cleared/Cash)</span><br>
+                    <span style="color: #64748b; font-size: 0.85rem;">Deposited (Cleared)</span><br>
                     <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.paid|floatformat:"2g" }}</strong>
                 </div>
+
+                {% if view_mode != 'strict' %}
                 <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #eab308;">
                     <span style="color: #64748b; font-size: 0.85rem;">Pending PDCs</span><br>
                     <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.pdc|floatformat:"2g" }}</strong>
@@ -100,8 +111,10 @@
                     <span style="color: #64748b; font-size: 0.85rem;">Bounced (Info Only)</span><br>
                     <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.bounced|floatformat:"2g" }}</strong>
                 </div>
-                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #94a3b8;">
-                    <span style="color: #64748b; font-size: 0.85rem;">Uncollected Balance</span><br>
+                {% endif %}
+
+                <div style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid {% if view_mode == 'strict' %}#ef4444{% else %}#94a3b8{% endif %};">
+                    <span style="color: #64748b; font-size: 0.85rem;">Remaining Balance</span><br>
                     <strong style="font-size: 1.2rem; color: #1e293b;">AED {{ global_stats.balance|floatformat:"2g" }}</strong>
                 </div>
             </div>
@@ -122,11 +135,13 @@
                 <!-- Building Data Text -->
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.85rem;">
                     <div><span style="color: #64748b;">Total Rent:</span> <strong style="color: #1e293b;">AED {{ pd.stats.total_rent|floatformat:"2g" }}</strong></div>
-                    <div><span style="color: #64748b;">Paid:</span> <strong style="color: #22c55e;">AED {{ pd.stats.paid|floatformat:"2g" }}</strong></div>
+                    <div><span style="color: #64748b;">Deposited:</span> <strong style="color: #22c55e;">AED {{ pd.stats.paid|floatformat:"2g" }}</strong></div>
+                    {% if view_mode != 'strict' %}
                     <div><span style="color: #64748b;">Pending PDC:</span> <strong style="color: #eab308;">AED {{ pd.stats.pdc|floatformat:"2g" }}</strong></div>
                     <div><span style="color: #64748b;">Replaced/Partial:</span> <strong style="color: #f97316;">AED {{ pd.stats.replaced|floatformat:"2g" }}</strong></div>
                     <div><span style="color: #64748b;">Bounced:</span> <strong style="color: #ef4444;">AED {{ pd.stats.bounced|floatformat:"2g" }}</strong></div>
-                    <div><span style="color: #64748b;">Balance:</span> <strong style="color: #94a3b8;">AED {{ pd.stats.balance|floatformat:"2g" }}</strong></div>
+                    {% endif %}
+                    <div><span style="color: #64748b;">Balance:</span> <strong style="color: {% if view_mode == 'strict' %}#ef4444{% else %}#94a3b8{% endif %};">AED {{ pd.stats.balance|floatformat:"2g" }}</strong></div>
                 </div>
                 <!-- Building Pie Chart -->
                 <div style="display: flex; justify-content: center; align-items: center; border-left: 1px solid #e2e8f0; padding-left: 15px;">
@@ -165,33 +180,45 @@
                         {% endif %}
                     </div>
 
-                  <!-- THE NEW FINANCIAL BREAKDOWN & PACT LEDGER -->
                     {% if eu.is_occupied and eu.latest_contract %}
                     <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px; font-size: 0.85rem; margin-top: 10px;">
                         <div style="color: var(--text-main); font-weight: 600; margin-bottom: 8px; font-size: 0.8rem;">
                             <i class="fa-regular fa-calendar" style="color: var(--primary-gold);"></i> {{ eu.latest_contract.start_date|date:"d M Y" }} &rarr; {{ eu.latest_contract.end_date|date:"d M Y" }}
                         </div>
 
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                            <span style="color: #64748b;">Total Rent:</span> <strong style="color: var(--text-main);">AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</strong>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                            <span style="color: #64748b;">Rent Paid:</span> <strong style="color: var(--success);">AED {{ eu.latest_contract.total_paid|floatformat:"2g" }}</strong>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 6px; margin-top: 6px;">
-                            <span style="color: #64748b; font-weight: bold;">Rent Balance:</span> <strong style="color: var(--danger); font-size: 0.95rem;">AED {{ eu.latest_contract.remaining_balance|floatformat:"2g" }}</strong>
-                        </div>
+                        <!-- STRICT MODE UNIT BOX -->
+                        {% if view_mode == 'strict' %}
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #64748b;">Total Net Rent:</span> <strong style="color: var(--text-main);">AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #64748b;">Deposited (Cleared):</span> <strong style="color: var(--success);">AED {{ eu.latest_contract.cleared_paid|floatformat:"2g" }}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 6px; margin-top: 6px;">
+                                <span style="color: #64748b; font-weight: bold;">Remaining Balance:</span> <strong style="color: var(--danger); font-size: 0.95rem;">AED {{ eu.latest_contract.strict_balance|floatformat:"2g" }}</strong>
+                            </div>
+                        {% else %}
+                        <!-- FULL MODE UNIT BOX -->
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #64748b;">Total Rent:</span> <strong style="color: var(--text-main);">AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #64748b;">Rent Paid (Inc. PDC):</span> <strong style="color: var(--success);">AED {{ eu.latest_contract.total_paid|floatformat:"2g" }}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; border-top: 1px solid #cbd5e1; padding-top: 6px; margin-top: 6px;">
+                                <span style="color: #64748b; font-weight: bold;">Uncollected Balance:</span> <strong style="color: var(--danger); font-size: 0.95rem;">AED {{ eu.latest_contract.remaining_balance|floatformat:"2g" }}</strong>
+                            </div>
 
-                        <!-- EXTRAS BOX -->
-                        {% if eu.latest_contract.extras_amount > 0 %}
-                        <div style="margin-top: 10px; background: #fdf2f8; border: 1px solid #fbcfe8; padding: 8px; border-radius: 4px;">
-                            <span style="color: #9d174d; font-size: 0.75rem; font-weight: 600;">+ Extras (Tasdeeq, etc): AED {{ eu.latest_contract.extras_amount|floatformat:"2g" }}</span>
-                            <ul style="margin: 4px 0 0 15px; padding: 0; color: #be185d; font-size: 0.7rem;">
-                                {% for ext in eu.latest_contract.extra_collections %}
-                                <li>{{ ext.particular }}: AED {{ ext.amount|floatformat:"2g" }} ({{ ext.status }})</li>
-                                {% endfor %}
-                            </ul>
-                        </div>
+                            {% if eu.latest_contract.extras_amount > 0 %}
+                            <div style="margin-top: 10px; background: #fdf2f8; border: 1px solid #fbcfe8; padding: 8px; border-radius: 4px;">
+                                <span style="color: #9d174d; font-size: 0.75rem; font-weight: 600;">+ Extras: AED {{ eu.latest_contract.extras_amount|floatformat:"2g" }}</span>
+                                <ul style="margin: 4px 0 0 15px; padding: 0; color: #be185d; font-size: 0.7rem;">
+                                    {% for ext in eu.latest_contract.extra_collections %}
+                                    <li>{{ ext.particular }}: AED {{ ext.amount|floatformat:"2g" }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            {% endif %}
                         {% endif %}
 
                         <!-- TENANT LEDGER BUTTON -->
@@ -200,20 +227,19 @@
                                 onclick="document.getElementById('ledger-{{ eu.latest_contract.id }}').showModal()"
                                 onmouseover="this.style.background='var(--primary-gold)'; this.style.color='white';"
                                 onmouseout="this.style.background='white'; this.style.color='var(--primary-gold)';">
-                            <i class="fa-solid fa-file-invoice-dollar"></i> View Tenant Ledger
+                            <i class="fa-solid fa-file-invoice-dollar"></i> {% if view_mode == 'strict' %}View Deposited Ledger{% else %}View Full Ledger{% endif %}
                         </button>
 
                         <!-- PACT-STYLE LEDGER MODAL -->
                         <dialog id="ledger-{{ eu.latest_contract.id }}" class="ledger-modal">
                             <div class="dialog-header">
-                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">Tenant Ledger (Rent Only)</h3>
+                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">{% if view_mode == 'strict' %}Tenant Ledger (Cleared / Deposited Only){% else %}Tenant Ledger (Rent Details){% endif %}</h3>
                                 <button class="close-btn" type="button" onclick="document.getElementById('ledger-{{ eu.latest_contract.id }}').close()"><i class="fa-solid fa-xmark"></i></button>
                             </div>
 
                             <div style="background: #f8fafc; padding: 20px; max-height: 75vh; overflow-y: auto;">
                                 <div style="background: white; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
 
-                                    <!-- Ledger Header -->
                                     <div style="padding: 15px 20px; border-bottom: 2px solid var(--primary-gold); display: flex; justify-content: space-between; background: #fffbeb;">
                                         <div style="font-size: 0.9rem; line-height: 1.5;">
                                             <strong style="color: #b45309;">Tenant Name:</strong> <span style="color: var(--text-main); font-weight: 600;">{{ eu.tenant.full_name }}</span><br>
@@ -221,13 +247,12 @@
                                             <strong style="color: #b45309;">Contract Period:</strong> {{ eu.latest_contract.start_date|date:"d/m/Y" }} to {{ eu.latest_contract.end_date|date:"d/m/Y" }}
                                         </div>
                                         <div style="text-align: right; font-size: 0.9rem; line-height: 1.5;">
-                                            <strong style="color: #047857;">Total Rent:</strong> AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}<br>
-                                            <strong style="color: #047857;">Rent Paid:</strong> AED {{ eu.latest_contract.total_paid|floatformat:"2g" }}<br>
-                                            <strong style="color: var(--danger);">Rent Balance: AED {{ eu.latest_contract.remaining_balance|floatformat:"2g" }}</strong>
+                                            <strong style="color: #047857;">Total Net Rent:</strong> AED {{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}<br>
+                                            <strong style="color: #047857;">{% if view_mode == 'strict' %}Deposited (Cleared){% else %}Rent Paid{% endif %}:</strong> AED {% if view_mode == 'strict' %}{{ eu.latest_contract.cleared_paid|floatformat:"2g" }}{% else %}{{ eu.latest_contract.total_paid|floatformat:"2g" }}{% endif %}<br>
+                                            <strong style="color: var(--danger);">{% if view_mode == 'strict' %}Remaining Balance{% else %}Uncollected Balance{% endif %}: AED {% if view_mode == 'strict' %}{{ eu.latest_contract.strict_balance|floatformat:"2g" }}{% else %}{{ eu.latest_contract.remaining_balance|floatformat:"2g" }}{% endif %}</strong>
                                         </div>
                                     </div>
 
-                                    <!-- Ledger Table -->
                                     <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
                                         <thead style="background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
                                             <tr>
@@ -251,23 +276,27 @@
                                                 <td style="padding: 10px 15px; text-align: right;"></td>
                                             </tr>
 
-                                            <!-- ONLY RENT COLLECTIONS -->
+                                            <!-- RENT COLLECTIONS -->
                                             {% for col in eu.latest_contract.rent_collections %}
-                                                {% if col.status != 'Pending PDC' %}
-                                                <tr style="border-bottom: 1px solid #f1f5f9;">
-                                                    <td style="padding: 10px 15px;">{{ col.due_date|date:"d-m-Y" }}</td>
-                                                    <td style="padding: 10px 15px;">
-                                                        {{ col.particular }} ({{ col.payment_type }}) -
-                                                        <b style="{% if col.status == 'Cleared' %}color:var(--success);{% elif col.status == 'Bounced' %}color:var(--danger);{% else %}color:var(--warning);{% endif %}">{{ col.status }}</b>
-                                                    </td>
-                                                    <td style="padding: 10px 15px;">{{ col.cheque_number|default:"-" }}</td>
-                                                    <td style="padding: 10px 15px; text-align: right;"></td>
-                                                    <td style="padding: 10px 15px; text-align: right; font-weight: bold; color: {% if col.status == 'Cleared' %}var(--success){% else %}var(--text-main){% endif %};">{{ col.amount|floatformat:"2g" }}</td>
-                                                </tr>
+                                                <!-- If in strict mode, ONLY SHOW CLEARED CHEQUES -->
+                                                {% if view_mode != 'strict' or col.status == 'Cleared' or col.status == 'Posted' %}
+                                                    {% if col.status != 'Pending PDC' %}
+                                                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                                                        <td style="padding: 10px 15px;">{{ col.due_date|date:"d-m-Y" }}</td>
+                                                        <td style="padding: 10px 15px;">
+                                                            {{ col.particular }} ({{ col.payment_type }}) -
+                                                            <b style="{% if col.status == 'Cleared' or col.status == 'Posted' %}color:var(--success);{% elif col.status == 'Bounced' %}color:var(--danger);{% else %}color:var(--warning);{% endif %}">{{ col.status }}</b>
+                                                        </td>
+                                                        <td style="padding: 10px 15px;">{{ col.cheque_number|default:"-" }}</td>
+                                                        <td style="padding: 10px 15px; text-align: right;"></td>
+                                                        <td style="padding: 10px 15px; text-align: right; font-weight: bold; color: {% if col.status == 'Cleared' or col.status == 'Posted' %}var(--success){% else %}var(--text-main){% endif %};">{{ col.amount|floatformat:"2g" }}</td>
+                                                    </tr>
+                                                    {% endif %}
                                                 {% endif %}
                                             {% endfor %}
 
-                                            <!-- GROUP 2: List Of PDCs -->
+                                            <!-- PDCs ARE HIDDEN ENTIRELY IN STRICT MODE -->
+                                            {% if view_mode != 'strict' %}
                                             <tr style="background: #e2e8f0; font-weight: bold; color: var(--dark-sidebar);">
                                                 <td colspan="5" style="padding: 8px 15px;">List Of PDCs</td>
                                             </tr>
@@ -282,11 +311,12 @@
                                                 </tr>
                                                 {% endif %}
                                             {% endfor %}
+                                            {% endif %}
 
                                             <tr style="background: #f8fafc; border-top: 2px solid #cbd5e1; font-weight: bold; font-size: 0.95rem;">
                                                 <td colspan="3" style="padding: 15px; text-align: right; text-transform: uppercase; color: var(--dark-sidebar);">Report Total</td>
                                                 <td style="padding: 15px; text-align: right; color: var(--text-main);">{{ eu.latest_contract.net_rent_amount|floatformat:"2g" }}</td>
-                                                <td style="padding: 15px; text-align: right; color: var(--success);">{{ eu.latest_contract.total_paid|floatformat:"2g" }}</td>
+                                                <td style="padding: 15px; text-align: right; color: {% if view_mode == 'strict' %}var(--success){% else %}var(--text-main){% endif %};">{% if view_mode == 'strict' %}{{ eu.latest_contract.cleared_paid|floatformat:"2g" }}{% else %}{{ eu.latest_contract.total_paid|floatformat:"2g" }}{% endif %}</td>
                                             </tr>
                                         </tbody>
                                     </table>
@@ -311,65 +341,64 @@
 {% block extra_js %}
 <script>
     function toggleProperty(element) {
-        // Prevent row collapsing if the user clicks ANY button (like the Ledger button)
-        if(event.target.tagName.toLowerCase() === 'button' || event.target.closest('button')) {
-            return;
-        }
-        if(event.target.closest('.units-container')) {
-            return;
-        }
+        if(event.target.tagName.toLowerCase() === 'button' || event.target.closest('button')) { return; }
+        if(event.target.closest('.units-container')) { return; }
         element.classList.toggle('active');
     }
 </script>
 
-
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-    function toggleProperty(element) {
-        if(event.target.tagName.toLowerCase() === 'button' || event.target.closest('button')) {
-            return;
-        }
-        if(event.target.closest('.units-container')) {
-            return;
-        }
-        element.classList.toggle('active');
-    }
-
-    // Modal Chart Rendering
     document.addEventListener("DOMContentLoaded", function() {
+        const viewMode = '{{ view_mode }}';
+
         const chartConfig = {
             type: 'doughnut',
             options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { boxWidth: 10, font: {size: 10} } } } }
         };
 
-        // Colors mapped strictly to 100% of Rent Value: [Paid, PDC, Replaced/Partial, Balance]
-        // Note: Bounced is kept OUT of the pie chart so the math perfectly equals 100%.
-        const bgColors = ['#22c55e', '#eab308', '#f97316', '#cbd5e1'];
+        // IF STRICT MODE: Only 2 colors for 2 slices (Deposited vs Balance)
+        let chartLabels = [];
+        let bgColors = [];
 
-        // Render Global Chart
+        if (viewMode === 'strict') {
+            chartLabels = ['Deposited (Cleared)', 'Remaining Balance'];
+            bgColors = ['#22c55e', '#ef4444'];
+        } else {
+            chartLabels = ['Paid (Cleared)', 'Pending PDC', 'Replaced/Partial', 'Uncollected Balance'];
+            bgColors = ['#22c55e', '#eab308', '#f97316', '#cbd5e1'];
+        }
+
         const globalStats = {{ global_stats_json|safe }};
         if(globalStats.total_rent > 0) {
+            let dataArr = [];
+            if (viewMode === 'strict') {
+                dataArr = [globalStats.paid, globalStats.balance];
+            } else {
+                dataArr = [globalStats.paid, globalStats.pdc, globalStats.replaced, globalStats.balance];
+            }
+
             new Chart(document.getElementById('globalChart').getContext('2d'), {
                 ...chartConfig,
-                data: {
-                    labels: ['Paid (Cleared)', 'Pending PDC', 'Replaced/Partial', 'Uncollected Balance'],
-                    datasets: [{ data: [globalStats.paid, globalStats.pdc, globalStats.replaced, globalStats.balance], backgroundColor: bgColors, borderWidth: 0 }]
-                }
+                data: { labels: chartLabels, datasets: [{ data: dataArr, backgroundColor: bgColors, borderWidth: 0 }] }
             });
         }
 
-        // Render Individual Property Charts
         {% for pd in property_data %}
             const stats_{{ pd.property.id }} = {{ pd.stats_json|safe }};
             if(stats_{{ pd.property.id }}.total_rent > 0) {
+                let dataArrBldg = [];
+                if (viewMode === 'strict') {
+                    dataArrBldg = [stats_{{ pd.property.id }}.paid, stats_{{ pd.property.id }}.balance];
+                } else {
+                    dataArrBldg = [stats_{{ pd.property.id }}.paid, stats_{{ pd.property.id }}.pdc, stats_{{ pd.property.id }}.replaced, stats_{{ pd.property.id }}.balance];
+                }
+
                 new Chart(document.getElementById('chart-{{ pd.property.id }}').getContext('2d'), {
                     ...chartConfig,
-                    data: {
-                        labels: ['Paid', 'PDC', 'Replaced', 'Balance'],
-                        datasets: [{ data: [stats_{{ pd.property.id }}.paid, stats_{{ pd.property.id }}.pdc, stats_{{ pd.property.id }}.replaced, stats_{{ pd.property.id }}.balance], backgroundColor: bgColors, borderWidth: 0 }]
-                    },
-                    options: { plugins: { legend: { display: false } } } // Hide legend on small building charts to save space
+                    data: { labels: chartLabels, datasets: [{ data: dataArrBldg, backgroundColor: bgColors, borderWidth: 0 }] },
+                    options: { plugins: { legend: { display: false } } }
                 });
             }
         {% endfor %}

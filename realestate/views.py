@@ -441,6 +441,9 @@ def owner_tenant_details(request, landlord_id):
 def owner_occupancy_status(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
 
+    # THE NEW TOGGLE: 'full' or 'strict'
+    view_mode = request.GET.get('mode', 'full')
+
     properties = Property.objects.filter(owner=landlord).prefetch_related(
         Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections'))
     )
@@ -460,24 +463,27 @@ def owner_occupancy_status(request, landlord_id):
                 unique_contracts.add(c)
 
         for c in unique_contracts:
-            # We ONLY pull the Net Rent and the cheques here
             p_stats['total_rent'] += float(c.net_rent_amount)
 
             for col in c.rent_collections:
                 amt = float(col.amount)
+
                 if col.status in ['Cleared', 'Posted']:
                     p_stats['paid'] += amt
-                elif col.status == 'Pending PDC':
-                    p_stats['pdc'] += amt
-                elif col.status == 'Bounced':
-                    p_stats['bounced'] += amt
-                elif col.status in ['Replaced/Partial', 'Replaced']:
-                    p_stats['replaced'] += amt
+                elif view_mode == 'full':  # ONLY count these if we are in Full mode!
+                    if col.status == 'Pending PDC':
+                        p_stats['pdc'] += amt
+                    elif col.status == 'Bounced':
+                        p_stats['bounced'] += amt
+                    elif col.status in ['Replaced/Partial', 'Replaced']:
+                        p_stats['replaced'] += amt
 
-        # --- THE FIX: YOUR EXACT FORMULA ---
-        # We calculate the balance for the building AFTER all cheques are summed,
-        # guaranteeing the visual cards and pie chart match perfectly.
-        calc_balance = p_stats['total_rent'] - (p_stats['paid'] + p_stats['pdc'] + p_stats['replaced'])
+        # STRICT MATH: Balance = Rent - Cleared Deposited
+        if view_mode == 'strict':
+            calc_balance = p_stats['total_rent'] - p_stats['paid']
+        else:
+            calc_balance = p_stats['total_rent'] - (p_stats['paid'] + p_stats['pdc'] + p_stats['replaced'])
+
         p_stats['balance'] = calc_balance if calc_balance > 0 else 0
 
         # Add building stats to global pool
@@ -496,7 +502,8 @@ def owner_occupancy_status(request, landlord_id):
         'landlord': landlord,
         'property_data': property_data,
         'global_stats': global_stats,
-        'global_stats_json': json.dumps(global_stats)
+        'global_stats_json': json.dumps(global_stats),
+        'view_mode': view_mode  # Pass the mode state to the HTML
     })
 
 
