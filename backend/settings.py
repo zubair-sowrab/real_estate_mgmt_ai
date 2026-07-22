@@ -26,7 +26,8 @@ SECRET_KEY = 'django-insecure-o&+xk5@u1p4ukxr2poe2^_=iy4sy16(bzz7yo+ejqoj5f)f5zt
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['192.168.1.250','localhost','127.0.0.1']
+ALLOWED_HOSTS = ['192.168.1.250','localhost','127.0.0.1','portal.edrak.ae',
+    'www.portal.edrak.ae']
 
 
 # Application definition
@@ -117,11 +118,10 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
+# Static files
 STATIC_URL = 'static/'
-
-STATICFILES_DIRS = [
-    BASE_DIR / 'static',
-]
+STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
