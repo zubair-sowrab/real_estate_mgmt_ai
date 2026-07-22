@@ -766,37 +766,40 @@ def owner_cashflow(request, landlord_id):
         if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
             return HttpResponseForbidden("<h1>403</h1>")
 
-    today_str = timezone.now().date().strftime("%Y-%m-%d")
-
-    # 1. Date Filters Logic
-    if 'date_from_hand' in request.GET:
-        date_from_hand = request.GET.get('date_from_hand', '').strip()
-        date_to_hand = request.GET.get('date_to_hand', '').strip()
-        date_from_bank = request.GET.get('date_from_bank', '').strip()
-        date_to_bank = request.GET.get('date_to_bank', '').strip()
-    else:
-        date_from_hand = today_str
-        date_to_hand = today_str
-        date_from_bank = today_str
-        date_to_bank = today_str
-
+    # 1. READ FILTER INPUTS
+    date_from_hand = request.GET.get('date_from_hand', '').strip()
+    date_to_hand = request.GET.get('date_to_hand', '').strip()
+    date_from_bank = request.GET.get('date_from_bank', '').strip()
+    date_to_bank = request.GET.get('date_to_bank', '').strip()
     search_query = request.GET.get('search', '').strip()
 
-    # 2. Strict Mapping + Fallback Shield
+    # Default to Year-To-Date on initial page visit only
+    if not bool(request.GET):
+        today = timezone.now().date()
+        date_from_hand = date(today.year, 1, 1).strftime("%Y-%m-%d")
+        date_to_hand = today.strftime("%Y-%m-%d")
+        date_from_bank = date(today.year, 1, 1).strftime("%Y-%m-%d")
+        date_to_bank = today.strftime("%Y-%m-%d")
+
+    # 2. LANDLORD PREFIX MAPPING WITH FALLBACK
     pact_ll_id = str(landlord.pact_landlord_id).strip()
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
     allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-    # FALLBACK: If landlord ID is not in prefix_map, don't block all vouchers!
     if allowed_prefixes:
         vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
     else:
         vouchers = BankDeposit.objects.all()
 
     if search_query:
-        vouchers = vouchers.filter(Q(narration__icontains=search_query) | Q(voucher_no__icontains=search_query))
+        vouchers = vouchers.filter(
+            Q(narration__icontains=search_query) |
+            Q(voucher_no__icontains=search_query) |
+            Q(tenant__icontains=search_query) |
+            Q(cheque_no__icontains=search_query)
+        )
 
-    # 3. Dynamic Filtering
+    # 3. APPLY DATE FILTERS ONLY WHEN SPECIFIED
     in_hand_vouchers = vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('-date')
     if date_from_hand:
         in_hand_vouchers = in_hand_vouchers.filter(date__gte=date_from_hand)
