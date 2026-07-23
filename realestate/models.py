@@ -116,11 +116,7 @@ class Contract(models.Model):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
-    # THE TRUE REALITY FIELDS (Populated directly from the PACT Ledger)
-    true_total_rent = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    true_total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    true_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    true_ledger_json = models.TextField(blank=True, null=True)  # Stores the exact PACT ledger rows
+
 
     def get_parsed_extras(self):
         """Safely unpacks the extra charges for the UI"""
