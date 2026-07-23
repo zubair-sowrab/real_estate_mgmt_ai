@@ -19,20 +19,13 @@ from .models import Landlord, Property, Unit, Contract, Collection, Tenant, Docu
 hidden_accounts = ['Landlord (ID: 1)', 'YBN General Portfolio', 'Accounts', 'Output VAT on Sale']
 
 
-# ==========================================
-# THE DYNAMIC OCCUPANCY ENGINE
-# ==========================================
 def get_property_expanded_stats(property_obj):
     units = property_obj.units.all()
     expanded_dict = {}
 
-    # PASS 1: Initialize sub-units and aggregate ALL contracts touching them
     for u in units:
         if '-' not in u.unit_number:
             continue
-
-        # THE FIX: Strip the colon and everything after it to fuse historical bulk-lease artifacts!
-        # Example: "AS001-S01...S05:2952" becomes the clean base name "AS001-S01...S05"
         raw_name = u.unit_number.strip()
         clean_name = raw_name.split(':')[0].strip()
 
@@ -47,16 +40,13 @@ def get_property_expanded_stats(property_obj):
                 'all_contracts': []
             }
 
-        # Throw all contracts from all historical PACT versions into this unified master pool
         expanded_dict[clean_name]['all_contracts'].extend(list(u.contracts.all()))
 
-    # PASS 2: Determine occupancy strictly by the absolute newest contract
     for sub, data in expanded_dict.items():
         if not data['all_contracts']:
             data['latest_contract'] = None
             continue
 
-        # This will now sort through 2022, 2023, 2024, 2025, and 2026 and pull ONLY the newest one!
         newest_contract = max(data['all_contracts'], key=lambda c: (c.start_date, c.end_date))
         data['latest_contract'] = newest_contract
 
@@ -128,9 +118,6 @@ def get_dynamic_notifications(landlord):
     return notifs
 
 
-# ==========================================
-# PUBLIC & AUTH ROUTES
-# ==========================================
 def landing_page(request):
     if request.user.is_authenticated:
         if request.user.is_superuser: return redirect('admin_dashboard')
@@ -182,9 +169,6 @@ def admin_dashboard(request):
     return render(request, 'realestate/portal_home.html', {'landlords': landlords})
 
 
-# ==========================================
-# OWNER DASHBOARD
-# ==========================================
 @login_required(login_url='/login/')
 def owner_dashboard(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
@@ -244,19 +228,15 @@ def owner_properties(request, landlord_id):
     thirty_days = today + timedelta(days=30)
     ninety_days = today + timedelta(days=90)
 
-    # Any contract that physically occupies a flat
-    occupying_contracts = Contract.objects.filter(
-        unit__property_asset__owner=landlord
-    ).exclude(status__in=['Terminated', 'Closed']).select_related('unit__property_asset', 'tenant')
+    occupying_contracts = Contract.objects.filter(unit__property_asset__owner=landlord).exclude(
+        status__in=['Terminated', 'Closed']).select_related('unit__property_asset', 'tenant')
 
     active_contracts = occupying_contracts.order_by('-start_date')
     renewals = occupying_contracts.filter(end_date__lte=thirty_days).order_by('-end_date')
     expiry_90 = occupying_contracts.filter(end_date__gt=thirty_days, end_date__lte=ninety_days).order_by('end_date')
 
-    # Build Vacant List from exploded units
     properties = Property.objects.filter(owner=landlord).prefetch_related(
-        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant'))
-    )
+        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant')))
 
     vacant_expanded = []
     for p in properties:
@@ -280,9 +260,12 @@ def owner_properties(request, landlord_id):
 def owner_vault(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden("<h1>403 - Security Violation</h1>")
+        if not hasattr(request.user,
+                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
+            "<h1>403 - Security Violation</h1>")
 
-    transactions = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related('contract__tenant', 'contract__unit__property_asset')
+    transactions = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
+        'contract__tenant', 'contract__unit__property_asset')
     properties = Property.objects.filter(owner=landlord)
 
     search_query = request.GET.get('search', '')
@@ -291,26 +274,31 @@ def owner_vault(request, landlord_id):
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     sort_by = request.GET.get('sort', '-id')
-    payee_filter = request.GET.get('payee', '') # <--- NEW
+    payee_filter = request.GET.get('payee', '')
 
-    if search_query: transactions = transactions.filter(Q(contract__tenant__full_name__icontains=search_query) | Q(cheque_number__icontains=search_query))
+    if search_query: transactions = transactions.filter(
+        Q(contract__tenant__full_name__icontains=search_query) | Q(cheque_number__icontains=search_query))
     if property_filter: transactions = transactions.filter(contract__unit__property_asset_id=property_filter)
     if status_filter: transactions = transactions.filter(status=status_filter)
-    if payee_filter: transactions = transactions.filter(payee_company=payee_filter) # <--- NEW
+    if payee_filter: transactions = transactions.filter(payee_company=payee_filter)
     if date_from: transactions = transactions.filter(due_date__gte=date_from)
     if date_to: transactions = transactions.filter(due_date__lte=date_to)
 
-    if sort_by == 'date_asc': transactions = transactions.order_by('due_date')
-    elif sort_by == '-due_date': transactions = transactions.order_by('-due_date')
-    elif sort_by == 'amount_desc': transactions = transactions.order_by('-amount')
-    elif sort_by == 'amount_asc': transactions = transactions.order_by('amount')
-    elif sort_by == 'id_asc': transactions = transactions.order_by('id')
-    else: transactions = transactions.order_by('-id')
+    if sort_by == 'date_asc':
+        transactions = transactions.order_by('due_date')
+    elif sort_by == '-due_date':
+        transactions = transactions.order_by('-due_date')
+    elif sort_by == 'amount_desc':
+        transactions = transactions.order_by('-amount')
+    elif sort_by == 'amount_asc':
+        transactions = transactions.order_by('amount')
+    elif sort_by == 'id_asc':
+        transactions = transactions.order_by('id')
+    else:
+        transactions = transactions.order_by('-id')
 
-    # Get distinct payee companies for the filter dropdown
-    unique_payees = Collection.objects.filter(
-        contract__unit__property_asset__owner=landlord
-    ).exclude(payee_company__isnull=True).exclude(payee_company='').values_list('payee_company', flat=True).distinct()
+    unique_payees = Collection.objects.filter(contract__unit__property_asset__owner=landlord).exclude(
+        payee_company__isnull=True).exclude(payee_company='').values_list('payee_company', flat=True).distinct()
 
     vault_breakdown = transactions.order_by().values('status').annotate(total=Sum('amount'))
     vault_dict = {item['status']: item['total'] or 0 for item in vault_breakdown}
@@ -325,8 +313,10 @@ def owner_vault(request, landlord_id):
 
     context = {
         'landlord': landlord, 'transactions': transactions, 'properties': properties, 'vault_sums': vault_sums,
-        'unique_payees': unique_payees, # <--- Pass to template
-        'filters': { 'search': search_query, 'property': int(property_filter) if property_filter.isdigit() else '', 'status': status_filter, 'date_from': date_from, 'date_to': date_to, 'sort': sort_by, 'payee': payee_filter },
+        'unique_payees': unique_payees,
+        'filters': {'search': search_query, 'property': int(property_filter) if property_filter.isdigit() else '',
+                    'status': status_filter, 'date_from': date_from, 'date_to': date_to, 'sort': sort_by,
+                    'payee': payee_filter},
         'notifications': notifications, 'notif_count': len(notifications)
     }
     return render(request, 'realestate/owner_vault.html', context)
@@ -336,24 +326,21 @@ def owner_vault(request, landlord_id):
 def owner_view_properties(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
-            return HttpResponseForbidden("<h1>403 - Security Violation</h1>")
+        if not hasattr(request.user,
+                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
+            "<h1>403 - Security Violation</h1>")
 
     properties = Property.objects.filter(owner=landlord).prefetch_related(
-        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections'))
-    )
+        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections')))
     property_data = []
 
     for p in properties:
         exp_units, t_count, o_count, occupancy_rate = get_property_expanded_stats(p)
-
-        # --- UNIT CATEGORIZATION LOGIC ---
         flats, parkings, shops = 0, 0, 0
+
         for eu in exp_units:
             unit_num = eu['unit_number']
             parts = unit_num.split('-')
-
-            # Look at the string segment after the hyphen '-'
             suffix = parts[1].upper() if len(parts) > 1 else unit_num.upper()
 
             if 'P' in suffix:
@@ -363,21 +350,15 @@ def owner_view_properties(request, landlord_id):
             elif 'F' in suffix or 'G' in suffix or 'M' in suffix:
                 flats += 1
 
-            # --- THE NEW ADDITION: Sort history for the template ---
             eu['history'] = sorted(eu['all_contracts'], key=lambda c: c.start_date, reverse=True)
             eu['latest_contract'] = eu['history'][0] if eu['history'] else None
 
         documents = p.documents.all().order_by('-uploaded_at')
 
         property_data.append({
-            'property': p,
-            'occupancy_rate': occupancy_rate,
-            'exp_units': exp_units,  # <--- Passing ALL units to the template
-            'documents': documents,
-            'stats': {
-                'total': t_count, 'occupied': o_count, 'vacant': t_count - o_count,
-                'flats': flats, 'parkings': parkings, 'shops': shops
-            }
+            'property': p, 'occupancy_rate': occupancy_rate, 'exp_units': exp_units, 'documents': documents,
+            'stats': {'total': t_count, 'occupied': o_count, 'vacant': t_count - o_count, 'flats': flats,
+                      'parkings': parkings, 'shops': shops}
         })
 
     notifications = get_dynamic_notifications(landlord)
@@ -441,7 +422,6 @@ def owner_tenant_details(request, landlord_id):
 def owner_occupancy_status(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
 
-    # THE NEW TOGGLE: 'full' or 'strict'
     view_mode = request.GET.get('mode', 'full')
 
     properties = Property.objects.filter(owner=landlord).prefetch_related(
@@ -463,14 +443,64 @@ def owner_occupancy_status(request, landlord_id):
                 unique_contracts.add(c)
 
         for c in unique_contracts:
-            p_stats['total_rent'] += float(c.net_rent_amount)
+            p_stats['total_rent'] += float(c.comprehensive_rent_amount)
+
+            c_ledger_active = []
+            c_ledger_pdc = []
+            run_bal = 0.0
+
+            # 1. Opening Contract Debit Line (Base Rent)
+            base_rent = float(c.net_rent_amount)
+            if base_rent > 0:
+                run_bal += base_rent
+                c_ledger_active.append({
+                    'doc_date': c.start_date, 'doc_no': f"TCO-{c.pact_contract_id[-6:]}",
+                    'particular': f"Advance Rent {c.unit.property_asset.name}", 'debit': base_rent, 'credit': 0.0,
+                    'balance': run_bal, 'unit_no': c.unit.unit_number, 'chq_no': '', 'bank': '', 'chq_date': '',
+                    'tracking': '2950', 'contract_start': c.start_date
+                })
+
+            # 1.5 Opening Contract Debit Lines (Valid Extras)
+            for ext in c.get_parsed_extras():
+                ext_amt = float(ext['amount'])
+                if ext_amt > 0:
+                    run_bal += ext_amt
+                    c_ledger_active.append({
+                        'doc_date': c.start_date, 'doc_no': f"TCO-{c.pact_contract_id[-6:]}",
+                        'particular': f"Advance Rent {c.unit.property_asset.name}", 'debit': ext_amt, 'credit': 0.0,
+                        'balance': run_bal, 'unit_no': c.unit.unit_number, 'chq_no': '', 'bank': '', 'chq_date': '',
+                        'tracking': '2950', 'contract_start': c.start_date
+                    })
+
+            # --- THE FIX: DYNAMIC UI MATH OVERRIDE ---
+            c.ui_total_paid = 0.0
+            c.ui_cleared_paid = 0.0
+            c.ui_valid_collections = []
 
             for col in c.rent_collections:
+                part_label = str(col.particular).strip()
+                part_lower = part_label.lower()
+
+                # IRONCLAD FAILSAFE: Kill Tasdeeq, Sewerage, and Security Deposits instantly!
+                if any(b in part_lower for b in ['tasdeeq', 'sewerage', 'security', 'deposit']):
+                    continue
+
+                if part_label == '15': part_label = "Rent"
+
+                # Keep only valid cheques for the HTML to render
+                c.ui_valid_collections.append(col)
                 amt = float(col.amount)
 
+                # UI Box Math
+                if col.status in ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']:
+                    c.ui_total_paid += amt
+                if col.status in ['Cleared', 'Posted']:
+                    c.ui_cleared_paid += amt
+
+                # Global Pie Chart Math
                 if col.status in ['Cleared', 'Posted']:
                     p_stats['paid'] += amt
-                elif view_mode == 'full':  # ONLY count these if we are in Full mode!
+                elif view_mode == 'full':
                     if col.status == 'Pending PDC':
                         p_stats['pdc'] += amt
                     elif col.status == 'Bounced':
@@ -478,7 +508,55 @@ def owner_occupancy_status(request, landlord_id):
                     elif col.status in ['Replaced/Partial', 'Replaced']:
                         p_stats['replaced'] += amt
 
-        # STRICT MATH: Balance = Rent - Cleared Deposited
+                # PACT Ledger Math
+                if col.status == 'Pending PDC':
+                    run_bal -= amt
+                    c_ledger_pdc.append({
+                        'doc_date': col.due_date, 'doc_no': f"PDR-{col.pact_transaction_id[-6:]}",
+                        'particular': f"PDC - {part_label}", 'debit': 0.0, 'credit': amt, 'balance': run_bal,
+                        'unit_no': c.unit.unit_number, 'chq_no': col.cheque_number or '', 'bank': col.payment_type,
+                        'chq_date': col.due_date, 'tracking': '2950', 'contract_start': c.start_date
+                    })
+                else:
+                    run_bal -= amt
+                    prefix = "CRV" if col.cheque_number else "RV"
+                    c_ledger_active.append({
+                        'doc_date': col.due_date, 'doc_no': f"{prefix}-{col.pact_transaction_id[-6:]}",
+                        'particular': part_label, 'debit': 0.0, 'credit': amt, 'balance': run_bal,
+                        'unit_no': c.unit.unit_number, 'chq_no': col.cheque_number or 'CASH', 'bank': col.payment_type,
+                        'chq_date': col.due_date, 'tracking': '2950', 'contract_start': c.start_date
+                    })
+
+                    if col.status in ['Bounced', 'Replaced', 'Replaced/Partial', 'Terminated PDC']:
+                        run_bal += amt
+                        c_ledger_active.append({
+                            'doc_date': col.due_date, 'doc_no': f"CBR-{col.pact_transaction_id[-6:]}",
+                            'particular': f"Reversal ({col.status})", 'debit': amt, 'credit': 0.0, 'balance': run_bal,
+                            'unit_no': c.unit.unit_number, 'chq_no': col.cheque_number or 'CASH',
+                            'bank': col.payment_type, 'chq_date': col.due_date, 'tracking': '2950',
+                            'contract_start': c.start_date
+                        })
+
+            c.generated_ledger_active = c_ledger_active
+            c.generated_ledger_pdc = c_ledger_pdc
+            c.active_debit = sum(l['debit'] for l in c_ledger_active)
+            c.active_credit = sum(l['credit'] for l in c_ledger_active)
+            c.active_bal = c.active_debit - c.active_credit
+            c.pdc_debit = sum(l['debit'] for l in c_ledger_pdc)
+            c.pdc_credit = sum(l['credit'] for l in c_ledger_pdc)
+            c.ledger_total_debit = c.active_debit + c.pdc_debit
+            c.ledger_total_credit = c.active_credit + c.pdc_credit
+            c.ledger_final_balance = run_bal
+
+            # Final UI Balance Math
+            comp_rent = float(c.comprehensive_rent_amount)
+            c.ui_remaining_balance = comp_rent - c.ui_total_paid
+            if c.ui_remaining_balance < 0: c.ui_remaining_balance = 0
+
+            c.ui_strict_balance = comp_rent - c.ui_cleared_paid
+            if c.ui_strict_balance < 0: c.ui_strict_balance = 0
+
+
         if view_mode == 'strict':
             calc_balance = p_stats['total_rent'] - p_stats['paid']
         else:
@@ -486,7 +564,6 @@ def owner_occupancy_status(request, landlord_id):
 
         p_stats['balance'] = calc_balance if calc_balance > 0 else 0
 
-        # Calculate percentages for building stats
         tr = p_stats['total_rent']
         p_stats['paid_pct'] = round((p_stats['paid'] / tr) * 100, 1) if tr > 0 else 0
         p_stats['pdc_pct'] = round((p_stats['pdc'] / tr) * 100, 1) if tr > 0 else 0
@@ -494,21 +571,14 @@ def owner_occupancy_status(request, landlord_id):
         p_stats['bounced_pct'] = round((p_stats['bounced'] / tr) * 100, 1) if tr > 0 else 0
         p_stats['balance_pct'] = round((p_stats['balance'] / tr) * 100, 1) if tr > 0 else 0
 
-        # Add building stats to global pool
         for k in ['total_rent', 'paid', 'pdc', 'bounced', 'replaced', 'balance']:
             global_stats[k] += p_stats[k]
 
-
-
         property_data.append({
-            'property': p,
-            'expanded_units': exp_units,
-            'total_count': t_count,
-            'stats': p_stats,
+            'property': p, 'expanded_units': exp_units, 'total_count': t_count, 'stats': p_stats,
             'stats_json': json.dumps(p_stats)
         })
 
-        # Calculate percentages for global pool
         gt = global_stats['total_rent']
         global_stats['paid_pct'] = round((global_stats['paid'] / gt) * 100, 1) if gt > 0 else 0
         global_stats['pdc_pct'] = round((global_stats['pdc'] / gt) * 100, 1) if gt > 0 else 0
@@ -517,11 +587,8 @@ def owner_occupancy_status(request, landlord_id):
         global_stats['balance_pct'] = round((global_stats['balance'] / gt) * 100, 1) if gt > 0 else 0
 
     return render(request, 'realestate/occupancy_status.html', {
-        'landlord': landlord,
-        'property_data': property_data,
-        'global_stats': global_stats,
-        'global_stats_json': json.dumps(global_stats),
-        'view_mode': view_mode  # Pass the mode state to the HTML
+        'landlord': landlord, 'property_data': property_data, 'global_stats': global_stats,
+        'global_stats_json': json.dumps(global_stats), 'view_mode': view_mode, 'today': timezone.now().date()
     })
 
 
@@ -529,8 +596,9 @@ def owner_occupancy_status(request, landlord_id):
 def owner_reports(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
-            return HttpResponseForbidden("<h1>403</h1>")
+        if not hasattr(request.user,
+                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
+            "<h1>403</h1>")
 
     prop_filter = request.GET.get('property', '')
     unit_filter = request.GET.get('unit', '').strip()
@@ -545,7 +613,6 @@ def owner_reports(request, landlord_id):
     reports_data = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
         'contract__tenant', 'contract__unit__property_asset').order_by('-due_date')
 
-    # Apply Filters
     if prop_filter: reports_data = reports_data.filter(contract__unit__property_asset_id=prop_filter)
     if unit_filter: reports_data = reports_data.filter(contract__unit__unit_number__icontains=unit_filter)
     if tenant_filter: reports_data = reports_data.filter(contract__tenant__full_name__icontains=tenant_filter)
@@ -555,47 +622,33 @@ def owner_reports(request, landlord_id):
     if date_from: reports_data = reports_data.filter(due_date__gte=date_from)
     if date_to: reports_data = reports_data.filter(due_date__lte=date_to)
 
-    # --- CSV EXPORT (Includes Net Rent) ---
     if export_format == 'csv':
         response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="Comprehensive_Report_{timezone.now().strftime("%Y%m%d")}.csv"'
+        response[
+            'Content-Disposition'] = f'attachment; filename="Comprehensive_Report_{timezone.now().strftime("%Y%m%d")}.csv"'
         writer = csv.writer(response)
-
-        writer.writerow(
-            ['Property', 'Unit', 'Tenant Name', 'Payee Company', 'Cheque/Ref Number', 'Cheque Amount (AED)',
-             'Contract Net Rent (AED)', 'Due Date', 'Cheque Status', 'Contract Status']
-        )
+        writer.writerow(['Property', 'Unit', 'Tenant Name', 'Payee Company', 'Cheque/Ref Number', 'Cheque Amount (AED)',
+                         'Contract Net Rent (AED)', 'Due Date', 'Cheque Status', 'Contract Status'])
         for row in reports_data:
-            writer.writerow([
-                row.contract.unit.property_asset.name, row.contract.unit.unit_number, row.contract.tenant.full_name,
-                row.payee_company if row.payee_company else "Direct to Owner", row.cheque_number, row.amount,
-                row.contract.net_rent_amount,  # <--- Pure Net Rent included
-                row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A', row.status, row.contract.status
-            ])
+            writer.writerow(
+                [row.contract.unit.property_asset.name, row.contract.unit.unit_number, row.contract.tenant.full_name,
+                 row.payee_company if row.payee_company else "Direct to Owner", row.cheque_number, row.amount,
+                 row.contract.net_rent_amount, row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A', row.status,
+                 row.contract.status])
         return response
 
-        # ==========================================
-        # VISUAL ANALYTICS ENGINE
-        # ==========================================
-
-        # 1. Revenue Trend Line Chart
-    monthly_qs = reports_data.filter(status='Cleared', due_date__isnull=False) \
-            .annotate(month=TruncMonth('due_date')).values('month').annotate(total=Sum('amount')).order_by('month')
+    monthly_qs = reports_data.filter(status='Cleared', due_date__isnull=False).annotate(
+        month=TruncMonth('due_date')).values('month').annotate(total=Sum('amount')).order_by('month')
     chart_months = [m['month'].strftime("%b %Y") for m in monthly_qs if m['month']]
     chart_collections = [float(m['total']) for m in monthly_qs]
 
-        # 2. Multi-Layered Property Revenue (Cleared + Replaced/Partial)
-    raw_prop_qs = reports_data.values('contract__unit__property_asset__name', 'status').annotate(
-        total=Sum('amount'))
+    raw_prop_qs = reports_data.values('contract__unit__property_asset__name', 'status').annotate(total=Sum('amount'))
     prop_dict = {}
     for p in raw_prop_qs:
         p_name = p['contract__unit__property_asset__name']
         clean_status = str(p['status']).strip() if p['status'] else 'Unknown'
-
         if clean_status in ['Cleared', 'Replaced/Partial']:
-            if p_name not in prop_dict:
-                prop_dict[p_name] = {'Cleared': 0.0, 'Replaced': 0.0}
-
+            if p_name not in prop_dict: prop_dict[p_name] = {'Cleared': 0.0, 'Replaced': 0.0}
             if clean_status == 'Cleared':
                 prop_dict[p_name]['Cleared'] += float(p['total'] or 0)
             elif clean_status == 'Replaced/Partial':
@@ -606,7 +659,6 @@ def owner_reports(request, landlord_id):
     chart_prop_cleared = [p[1]['Cleared'] for p in sorted_props]
     chart_prop_replaced = [p[1]['Replaced'] for p in sorted_props]
 
-        # 3. Status Breakdown Pie
     raw_status_qs = reports_data.values('status').annotate(total=Sum('amount'))
     status_dict = {}
     for s in raw_status_qs:
@@ -616,51 +668,47 @@ def owner_reports(request, landlord_id):
     chart_statuses = list(status_dict.keys())
     chart_status_totals = list(status_dict.values())
 
-        # 4. Rent Growth Bar Chart (THE MISSING LINK WAS HERE)
     contract_qs = Contract.objects.filter(unit__property_asset__owner=landlord, start_date__isnull=False)
     if prop_filter: contract_qs = contract_qs.filter(unit__property_asset_id=prop_filter)
     if unit_filter: contract_qs = contract_qs.filter(unit__unit_number__icontains=unit_filter)
     if tenant_filter: contract_qs = contract_qs.filter(tenant__full_name__icontains=tenant_filter)
     if contract_status_filter: contract_qs = contract_qs.filter(status=contract_status_filter)
 
-    rent_trend_qs = contract_qs.annotate(year=TruncYear('start_date')) \
-            .values('year').annotate(avg_rent=Avg('net_rent_amount')).order_by('year')
+    rent_trend_qs = contract_qs.annotate(year=TruncYear('start_date')).values('year').annotate(
+        avg_rent=Avg('net_rent_amount')).order_by('year')
     chart_years = [y['year'].strftime("%Y") for y in rent_trend_qs if y['year']]
     chart_avg_rents = [float(y['avg_rent']) for y in rent_trend_qs]
 
-        # Package it all up for the frontend
     analytics = {
-            'months': json.dumps(chart_months), 'collections': json.dumps(chart_collections),
-            'props': json.dumps(chart_props),
-            'prop_cleared': json.dumps(chart_prop_cleared),
-            'prop_replaced': json.dumps(chart_prop_replaced),
-            'statuses': json.dumps(chart_statuses), 'status_totals': json.dumps(chart_status_totals),
-            'years': json.dumps(chart_years), 'avg_rents': json.dumps(chart_avg_rents),
+        'months': json.dumps(chart_months), 'collections': json.dumps(chart_collections),
+        'props': json.dumps(chart_props), 'prop_cleared': json.dumps(chart_prop_cleared),
+        'prop_replaced': json.dumps(chart_prop_replaced),
+        'statuses': json.dumps(chart_statuses), 'status_totals': json.dumps(chart_status_totals),
+        'years': json.dumps(chart_years), 'avg_rents': json.dumps(chart_avg_rents),
     }
 
-    # ==========================================
-    # DROPDOWN DATA LISTS
-    # ==========================================
     properties = Property.objects.filter(owner=landlord)
-    units_list = Unit.objects.filter(property_asset__owner=landlord).values_list('unit_number', flat=True).distinct().order_by('unit_number')
-    payee_list = Collection.objects.filter(contract__unit__property_asset__owner=landlord).exclude(payee_company__isnull=True).exclude(payee_company='').values_list('payee_company', flat=True).distinct().order_by('payee_company')
-
+    units_list = Unit.objects.filter(property_asset__owner=landlord).values_list('unit_number',
+                                                                                 flat=True).distinct().order_by(
+        'unit_number')
+    payee_list = Collection.objects.filter(contract__unit__property_asset__owner=landlord).exclude(
+        payee_company__isnull=True).exclude(payee_company='').values_list('payee_company',
+                                                                          flat=True).distinct().order_by(
+        'payee_company')
     total_amount = reports_data.aggregate(Sum('amount'))['amount__sum'] or 0
     notifications = get_dynamic_notifications(landlord)
 
     context = {
-        'landlord': landlord, 'reports_data': reports_data, 'properties': properties,
-        'units_list': units_list, 'payee_list': payee_list,
+        'landlord': landlord, 'reports_data': reports_data, 'properties': properties, 'units_list': units_list,
+        'payee_list': payee_list,
         'total_amount': total_amount, 'analytics': analytics,
-        'filters': {
-            'property': int(prop_filter) if prop_filter.isdigit() else '', 'unit': unit_filter,
-            'tenant': tenant_filter, 'status': status_filter, 'contract_status': contract_status_filter,
-            'payee': payee_filter, 'date_from': date_from, 'date_to': date_to
-        },
+        'filters': {'property': int(prop_filter) if prop_filter.isdigit() else '', 'unit': unit_filter,
+                    'tenant': tenant_filter, 'status': status_filter, 'contract_status': contract_status_filter,
+                    'payee': payee_filter, 'date_from': date_from, 'date_to': date_to},
         'notifications': notifications, 'notif_count': len(notifications)
     }
-
     return render(request, 'realestate/reports.html', context)
+
 
 @login_required(login_url='/login/')
 def upload_document(request, landlord_id):
@@ -788,17 +836,16 @@ def delete_property_document(request, landlord_id, doc_id):
 def owner_cashflow(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
-            return HttpResponseForbidden("<h1>403</h1>")
+        if not hasattr(request.user,
+                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
+            "<h1>403</h1>")
 
-    # 1. READ FILTER INPUTS
     date_from_hand = request.GET.get('date_from_hand', '').strip()
     date_to_hand = request.GET.get('date_to_hand', '').strip()
     date_from_bank = request.GET.get('date_from_bank', '').strip()
     date_to_bank = request.GET.get('date_to_bank', '').strip()
     search_query = request.GET.get('search', '').strip()
 
-    # Default to Year-To-Date on initial page visit only
     if not bool(request.GET):
         today = timezone.now().date()
         date_from_hand = date(today.year, 1, 1).strftime("%Y-%m-%d")
@@ -806,7 +853,6 @@ def owner_cashflow(request, landlord_id):
         date_from_bank = date(today.year, 1, 1).strftime("%Y-%m-%d")
         date_to_bank = today.strftime("%Y-%m-%d")
 
-    # 2. LANDLORD PREFIX MAPPING WITH FALLBACK
     pact_ll_id = str(landlord.pact_landlord_id).strip()
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
     allowed_prefixes = prefix_map.get(pact_ll_id, [])
@@ -817,41 +863,25 @@ def owner_cashflow(request, landlord_id):
         vouchers = BankDeposit.objects.all()
 
     if search_query:
-        vouchers = vouchers.filter(
-            Q(narration__icontains=search_query) |
-            Q(voucher_no__icontains=search_query) |
-            Q(tenant__icontains=search_query) |
-            Q(cheque_no__icontains=search_query)
-        )
+        vouchers = vouchers.filter(Q(narration__icontains=search_query) | Q(voucher_no__icontains=search_query) | Q(
+            tenant__icontains=search_query) | Q(cheque_no__icontains=search_query))
 
-    # 3. APPLY DATE FILTERS ONLY WHEN SPECIFIED
     in_hand_vouchers = vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('-date')
-    if date_from_hand:
-        in_hand_vouchers = in_hand_vouchers.filter(date__gte=date_from_hand)
-    if date_to_hand:
-        in_hand_vouchers = in_hand_vouchers.filter(date__lte=date_to_hand)
+    if date_from_hand: in_hand_vouchers = in_hand_vouchers.filter(date__gte=date_from_hand)
+    if date_to_hand: in_hand_vouchers = in_hand_vouchers.filter(date__lte=date_to_hand)
 
     in_bank_vouchers = vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('-date')
-    if date_from_bank:
-        in_bank_vouchers = in_bank_vouchers.filter(date__gte=date_from_bank)
-    if date_to_bank:
-        in_bank_vouchers = in_bank_vouchers.filter(date__lte=date_to_bank)
+    if date_from_bank: in_bank_vouchers = in_bank_vouchers.filter(date__gte=date_from_bank)
+    if date_to_bank: in_bank_vouchers = in_bank_vouchers.filter(date__lte=date_to_bank)
 
     total_in_hand = in_hand_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
     total_in_bank = in_bank_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
 
     context = {
-        'landlord': landlord,
-        'in_hand_vouchers': in_hand_vouchers,
-        'in_bank_vouchers': in_bank_vouchers,
-        'total_in_hand': total_in_hand,
-        'total_in_bank': total_in_bank,
-        'filters': {
-            'date_from_hand': date_from_hand, 'date_to_hand': date_to_hand,
-            'date_from_bank': date_from_bank, 'date_to_bank': date_to_bank,
-            'search': search_query
-        },
-        'notifications': get_dynamic_notifications(landlord),
-        'notif_count': len(get_dynamic_notifications(landlord))
+        'landlord': landlord, 'in_hand_vouchers': in_hand_vouchers, 'in_bank_vouchers': in_bank_vouchers,
+        'total_in_hand': total_in_hand, 'total_in_bank': total_in_bank,
+        'filters': {'date_from_hand': date_from_hand, 'date_to_hand': date_to_hand, 'date_from_bank': date_from_bank,
+                    'date_to_bank': date_to_bank, 'search': search_query},
+        'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }
     return render(request, 'realestate/cashflow.html', context)

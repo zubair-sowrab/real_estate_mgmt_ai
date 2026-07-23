@@ -105,31 +105,47 @@ class Contract(models.Model):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    rent_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+
+    # THE FIX: New fields to perfectly track base rent vs valid extras
+    net_rent_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    comprehensive_rent_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    extra_charges_text = models.TextField(blank=True, null=True)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
+
+    # THE TRUE REALITY FIELDS (Populated directly from the PACT Ledger)
+    true_total_rent = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    true_total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    true_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    true_ledger_json = models.TextField(blank=True, null=True)  # Stores the exact PACT ledger rows
+
+    def get_parsed_extras(self):
+        """Safely unpacks the extra charges for the UI"""
+        if not self.extra_charges_text: return []
+        extras = []
+        for ext in self.extra_charges_text.split(" | "):
+            if ":" in ext:
+                name, amt = ext.split(":")
+                extras.append({'name': name.strip(), 'amount': float(amt.strip())})
+        return extras
+
     @property
     def rent_collections(self):
         sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
         rent_items = []
 
-        # VIP Whitelist: Parking and VAT are strictly part of RENT
-        rent_whitelist = ['parking', 'vat']
-        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'admin', 'fee', 'charge']
+        # VIP: Forcefully banish Tasdeeq (28), Sewerage (31), and Security Deposits!
+        banned_ids = ['28', '31']
+        banned_words = ['tasdeeq', 'sewerage', 'security', 'deposit']
 
         for c in sorted_cols:
             part_text = str(c.particular).strip().lower()
 
-            # PACT ID LOGIC: Pure numbers must be '15' for Rent
-            if part_text.isdigit():
-                if part_text == '15':
-                    rent_items.append(c)
-                continue
-
-                # VIP CHECK: Parking & VAT force their way into Rent!
-            if any(w in part_text for w in rent_whitelist):
-                rent_items.append(c)
-                continue
-
-            # BLOCK EXTRAS: Tasdeeq, Deposits, etc.
-            if any(k in part_text for k in extra_keywords):
+            # STRICT BLOCK
+            if str(c.particular).strip() in banned_ids or any(k in part_text for k in banned_words):
                 continue
 
             rent_items.append(c)
@@ -137,72 +153,24 @@ class Contract(models.Model):
         return rent_items
 
     @property
-    def extra_collections(self):
-        sorted_cols = sorted(self.collections.all(), key=lambda c: c.due_date)
-        extra_items = []
-
-        rent_whitelist = ['parking', 'vat']
-        extra_keywords = ['tasdeeq', 'sewerage', 'security', 'commission', 'deposit', 'admin', 'fee', 'charge']
-
-        for c in sorted_cols:
-            part_text = str(c.particular).strip().lower()
-
-            if part_text.isdigit():
-                if part_text != '15':
-                    extra_items.append(c)
-                continue
-
-            # Skip Parking & VAT so they aren't placed in Extras
-            if any(w in part_text for w in rent_whitelist):
-                continue
-
-            if any(k in part_text for k in extra_keywords):
-                extra_items.append(c)
-
-        return extra_items
-
-    @property
     def total_paid(self):
-        # RESTORED: Replaced and Partial cheques are active credits!
         valid_statuses = ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']
         return sum(c.amount for c in self.rent_collections if c.status in valid_statuses)
 
     @property
     def remaining_balance(self):
-        bal = self.net_rent_amount - self.total_paid
-        return bal if bal > 0 else 0
-
-    @property
-    def all_valid_collections(self):
-        # RESTORED: Replaced and Partial cheques are active credits!
-        valid_statuses = ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']
-        return [c for c in self.collections.all() if c.status in valid_statuses]
-
-    @property
-    def total_paid_all(self):
-        return sum(c.amount for c in self.all_valid_collections)
-
-    @property
-    def remaining_balance_all(self):
-        bal = self.total_amount - self.total_paid_all
-        return bal if bal > 0 else 0
-
-    @property
-    def remaining_balance_all(self):
-        bal = self.total_amount - self.total_paid_all
+        # Uses the true combined rent target
+        bal = self.comprehensive_rent_amount - self.total_paid
         return bal if bal > 0 else 0
 
     @property
     def cleared_paid(self):
-        # STRICT MODE: Only counts physically deposited cash/clearances
         return sum(c.amount for c in self.rent_collections if c.status in ['Cleared', 'Posted'])
 
     @property
     def strict_balance(self):
-        # STRICT MODE: Ignores PDCs and Replacements
-        bal = self.net_rent_amount - self.cleared_paid
+        bal = self.comprehensive_rent_amount - self.cleared_paid
         return bal if bal > 0 else 0
-
 
     def __str__(self):
         return f"{self.tenant.full_name} - {self.unit.unit_number} ({self.status})"
