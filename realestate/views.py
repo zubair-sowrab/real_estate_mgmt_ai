@@ -4,6 +4,8 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models.functions import TruncMonth, TruncYear
 import re
+import itertools
+from datetime import datetime
 from django.db.models import Avg
 import json
 from django.http import HttpResponseForbidden
@@ -835,20 +837,15 @@ def delete_property_document(request, landlord_id, doc_id):
 def owner_cashflow(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user,
-                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
-            "<h1>403</h1>")
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
 
-    date_from_hand = request.GET.get('date_from_hand', '').strip()
-    date_to_hand = request.GET.get('date_to_hand', '').strip()
     date_from_bank = request.GET.get('date_from_bank', '').strip()
     date_to_bank = request.GET.get('date_to_bank', '').strip()
     search_query = request.GET.get('search', '').strip()
 
     if not bool(request.GET):
         today = timezone.now().date()
-        date_from_hand = date(today.year, 1, 1).strftime("%Y-%m-%d")
-        date_to_hand = today.strftime("%Y-%m-%d")
         date_from_bank = date(today.year, 1, 1).strftime("%Y-%m-%d")
         date_to_bank = today.strftime("%Y-%m-%d")
 
@@ -861,26 +858,102 @@ def owner_cashflow(request, landlord_id):
     else:
         vouchers = BankDeposit.objects.all()
 
+    # --- AUTO-MATCHING ENGINE ---
+        # --- AUTO-MATCHING ENGINE ---
+    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
+    all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('date', 'id'))
+
+    unmatched_cros = all_cros.copy()
+
+
+
+    for d in all_deposits:
+        d.linked_cros = []
+
+            # GOLDEN RULE: Only BRVs absorb physical cash/cheques.
+        if d.doc_abbr != 'BRV':
+            continue
+
+        target = float(d.amount)
+
+            # THE FIX: Sort backwards! Most recent receipts (closest to deposit date) are checked first.
+        valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date], key=lambda x: (x.date, x.id),
+                                reverse=True)
+        matched = False
+
+            # Method 1: Exact Single Match
+        for cro in valid_cros:
+            if abs(float(cro.amount) - target) < 0.01:
+                d.linked_cros = [cro]
+                unmatched_cros.remove(cro)
+                matched = True
+                break
+
+            # Method 2: Reverse Sequential "Stack" Match
+        if not matched:
+            for i in range(len(valid_cros)):
+                current_sum = 0.0
+                temp_match = []
+                for j in range(i, len(valid_cros)):
+                    current_sum += float(valid_cros[j].amount)
+                    temp_match.append(valid_cros[j])
+
+                    if abs(current_sum - target) < 0.01:
+                            # Sort them chronologically again so they look nice in the UI
+                        d.linked_cros = sorted(temp_match, key=lambda x: x.date)
+                        for m in temp_match:
+                            unmatched_cros.remove(m)
+                        matched = True
+                        break
+                    elif current_sum > target + 0.1:
+                        break  # Went over target, stop adding to this stack
+                if matched: break
+
+            # Method 3: Flexible Fallback (Combinations of the 50 most recent unbanked receipts)
+        if not matched and valid_cros:
+            recent_cros = valid_cros[:50]  # Since list is reversed, [:50] grabs the newest 50!
+            combo_found = False
+            for r in range(2, min(7, len(recent_cros) + 1)):
+                for combo in itertools.combinations(recent_cros, r):
+                    if abs(sum(float(c.amount) for c in combo) - target) < 0.01:
+                        d.linked_cros = sorted(list(combo), key=lambda x: x.date)
+                        for m in combo:
+                            unmatched_cros.remove(m)
+                        combo_found = True
+                        break
+                if combo_found: break
+
+        # --- APPLY UI FILTERS TO RESULTS ---
+
+    # --- APPLY UI FILTERS TO RESULTS ---
+    filtered_deposits = all_deposits
+
+    if date_from_bank:
+        d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
+        filtered_deposits = [b for b in filtered_deposits if b.date >= d_from]
+    if date_to_bank:
+        d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
+        filtered_deposits = [b for b in filtered_deposits if b.date <= d_to]
+
     if search_query:
-        vouchers = vouchers.filter(Q(narration__icontains=search_query) | Q(voucher_no__icontains=search_query) | Q(
-            tenant__icontains=search_query) | Q(cheque_no__icontains=search_query))
+        sq = search_query.lower()
+        filtered_deposits = [
+            b for b in filtered_deposits
+            if (b.narration and sq in b.narration.lower())
+               or (b.voucher_no and sq in b.voucher_no.lower())
+               or (b.tenant and sq in b.tenant.lower())
+               or (b.cheque_no and sq in b.cheque_no.lower())
+        ]
 
-    in_hand_vouchers = vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('-date')
-    if date_from_hand: in_hand_vouchers = in_hand_vouchers.filter(date__gte=date_from_hand)
-    if date_to_hand: in_hand_vouchers = in_hand_vouchers.filter(date__lte=date_to_hand)
-
-    in_bank_vouchers = vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('-date')
-    if date_from_bank: in_bank_vouchers = in_bank_vouchers.filter(date__gte=date_from_bank)
-    if date_to_bank: in_bank_vouchers = in_bank_vouchers.filter(date__lte=date_to_bank)
-
-    total_in_hand = in_hand_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
-    total_in_bank = in_bank_vouchers.aggregate(Sum('amount'))['amount__sum'] or 0
+    # Sort descending for UI display
+    filtered_deposits.sort(key=lambda x: x.date, reverse=True)
+    total_in_bank = sum(float(b.amount) for b in filtered_deposits)
 
     context = {
-        'landlord': landlord, 'in_hand_vouchers': in_hand_vouchers, 'in_bank_vouchers': in_bank_vouchers,
-        'total_in_hand': total_in_hand, 'total_in_bank': total_in_bank,
-        'filters': {'date_from_hand': date_from_hand, 'date_to_hand': date_to_hand, 'date_from_bank': date_from_bank,
-                    'date_to_bank': date_to_bank, 'search': search_query},
+        'landlord': landlord,
+        'in_bank_vouchers': filtered_deposits,
+        'total_in_bank': total_in_bank,
+        'filters': {'date_from_bank': date_from_bank, 'date_to_bank': date_to_bank, 'search': search_query},
         'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }
     return render(request, 'realestate/cashflow.html', context)
