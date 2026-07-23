@@ -435,7 +435,6 @@ def owner_occupancy_status(request, landlord_id):
         exp_units, t_count, _, _ = get_property_expanded_stats(p)
 
         p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
-
         unique_contracts = set()
         for eu in exp_units:
             c = eu.get('latest_contract')
