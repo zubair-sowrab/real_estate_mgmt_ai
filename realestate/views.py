@@ -486,9 +486,19 @@ def owner_occupancy_status(request, landlord_id):
 
         p_stats['balance'] = calc_balance if calc_balance > 0 else 0
 
+        # Calculate percentages for building stats
+        tr = p_stats['total_rent']
+        p_stats['paid_pct'] = round((p_stats['paid'] / tr) * 100, 1) if tr > 0 else 0
+        p_stats['pdc_pct'] = round((p_stats['pdc'] / tr) * 100, 1) if tr > 0 else 0
+        p_stats['replaced_pct'] = round((p_stats['replaced'] / tr) * 100, 1) if tr > 0 else 0
+        p_stats['bounced_pct'] = round((p_stats['bounced'] / tr) * 100, 1) if tr > 0 else 0
+        p_stats['balance_pct'] = round((p_stats['balance'] / tr) * 100, 1) if tr > 0 else 0
+
         # Add building stats to global pool
-        for k in global_stats:
+        for k in ['total_rent', 'paid', 'pdc', 'bounced', 'replaced', 'balance']:
             global_stats[k] += p_stats[k]
+
+
 
         property_data.append({
             'property': p,
@@ -497,6 +507,14 @@ def owner_occupancy_status(request, landlord_id):
             'stats': p_stats,
             'stats_json': json.dumps(p_stats)
         })
+
+        # Calculate percentages for global pool
+        gt = global_stats['total_rent']
+        global_stats['paid_pct'] = round((global_stats['paid'] / gt) * 100, 1) if gt > 0 else 0
+        global_stats['pdc_pct'] = round((global_stats['pdc'] / gt) * 100, 1) if gt > 0 else 0
+        global_stats['replaced_pct'] = round((global_stats['replaced'] / gt) * 100, 1) if gt > 0 else 0
+        global_stats['bounced_pct'] = round((global_stats['bounced'] / gt) * 100, 1) if gt > 0 else 0
+        global_stats['balance_pct'] = round((global_stats['balance'] / gt) * 100, 1) if gt > 0 else 0
 
     return render(request, 'realestate/occupancy_status.html', {
         'landlord': landlord,
