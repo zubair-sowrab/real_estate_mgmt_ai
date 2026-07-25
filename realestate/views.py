@@ -176,43 +176,138 @@ def owner_dashboard(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
         if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
-            return HttpResponseForbidden("<h1>403 - Security Violation</h1>")
+            return HttpResponseForbidden("<h1>403</h1>")
 
-    properties = Property.objects.filter(owner=landlord).prefetch_related(
-        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant'))
-    )
+    date_from_bank = request.GET.get('date_from_bank', '').strip()
+    date_to_bank = request.GET.get('date_to_bank', '').strip()
+    search_query = request.GET.get('search', '').strip()
 
-    total_units = 0
-    occupied_units = 0
+    if not bool(request.GET):
+        today = timezone.now().date()
 
-    for p in properties:
-        _, t_count, o_count, _ = get_property_expanded_stats(p)
-        total_units += t_count
-        occupied_units += o_count
+        date_from_bank = "2025-12-31"
+        date_to_bank = today.strftime("%Y-%m-%d")
 
-    occupancy_rate = int((occupied_units / total_units) * 100) if total_units > 0 else 0
+    pact_ll_id = str(landlord.pact_landlord_id).strip()
+    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+    allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-    today = timezone.now().date()
-    first_of_month = date(today.year, today.month, 1)
+    if allowed_prefixes:
+        vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
+    else:
+        vouchers = BankDeposit.objects.all()
+        # --- AUTO-MATCHING ENGINE ---
+    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
 
-    kpi_collections = Collection.objects.filter(contract__unit__property_asset__in=properties,
-                                                due_date__gte=first_of_month, due_date__lte=today)
-    kpi_breakdown = kpi_collections.order_by().values('status').annotate(total=Sum('amount'))
-    kpi_dict = {item['status']: item['total'] or 0 for item in kpi_breakdown}
+    # THE FIX: Added 'CBR' to the query so Bounced Receipts actually load!
+    all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
+    unmatched_cros = all_cros.copy()
+    import itertools
+    from datetime import datetime
 
-    kpi_sums = {
-        'cleared': kpi_dict.get('Cleared', 0), 'pending': kpi_dict.get('Pending PDC', 0),
-        'bounced': kpi_dict.get('Bounced', 0), 'replaced': kpi_dict.get('Replaced', 0),
-        'partial': kpi_dict.get('Replaced/Partial', 0), 'terminated': kpi_dict.get('Terminated PDC', 0),
-    }
+    TOLERANCE = 6.0
 
-    recent_transactions = Collection.objects.filter(contract__unit__property_asset__in=properties).order_by('-id')[:20]
-    notifications = get_dynamic_notifications(landlord)
+    for d in all_deposits:
+        d.linked_cros = []
+        if d.doc_abbr != 'BRV':
+            continue
+
+        target = float(d.amount)
+        valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date], key=lambda x: (x.date, x.id),
+                            reverse=True)
+        matched = False
+
+        for cro in valid_cros:
+            if abs(float(cro.amount) - target) < 0.05:
+                d.linked_cros = [cro]
+                unmatched_cros.remove(cro)
+                matched = True
+                break
+
+        if not matched:
+            for i in range(len(valid_cros)):
+                current_sum = 0.0
+                temp_match = []
+                for j in range(i, len(valid_cros)):
+                    current_sum += float(valid_cros[j].amount)
+                    temp_match.append(valid_cros[j])
+                    if abs(current_sum - target) <= TOLERANCE:
+                        d.linked_cros = sorted(temp_match, key=lambda x: x.date)
+                        for m in temp_match:
+                            unmatched_cros.remove(m)
+                        matched = True
+                        break
+                    elif current_sum > target + TOLERANCE:
+                        break
+                if matched: break
+
+        if not matched and valid_cros:
+            recent_cros = valid_cros[:50]
+            combo_found = False
+            for r in range(2, min(7, len(recent_cros) + 1)):
+                for combo in itertools.combinations(recent_cros, r):
+                    if abs(sum(float(c.amount) for c in combo) - target) < 0.05:
+                        d.linked_cros = sorted(list(combo), key=lambda x: x.date)
+                        for m in combo:
+                            unmatched_cros.remove(m)
+                        combo_found = True
+                        break
+                if combo_found: break
+
+        # --- APPLY UI FILTERS TO RESULTS ---
+    filtered_deposits = all_deposits
+
+    if date_from_bank:
+        d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
+        filtered_deposits = [b for b in filtered_deposits if b.date >= d_from]
+    if date_to_bank:
+        d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
+        filtered_deposits = [b for b in filtered_deposits if b.date <= d_to]
+
+    if search_query:
+        sq = search_query.lower()
+        filtered_deposits = [
+            b for b in filtered_deposits
+            if (b.narration and sq in b.narration.lower())
+               or (b.voucher_no and sq in b.voucher_no.lower())
+               or (b.tenant and sq in b.tenant.lower())
+               or (b.cheque_no and sq in b.cheque_no.lower())
+        ]
+
+    filtered_deposits.sort(key=lambda x: x.date, reverse=True)
+    # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
+    cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
+    collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
+    cheque_status_map = {str(c.cheque_number).strip(): c.status for c in collections if c.cheque_number}
+
+    total_in_bank = 0.0
+    total_bounced = 0.0
+    total_replaced = 0.0
+
+    for d in filtered_deposits:
+        # A CBR voucher is specifically a Cheque Bounced Receipt
+        if d.doc_abbr == 'CBR':
+            d.ui_type = 'bounced'
+            total_bounced += float(d.amount)
+
+        # If it's NOT a CBR, but PACT flagged it with 429, it was Replaced
+        elif str(d.pact_status_id).strip() == '429':
+            d.ui_type = 'replaced'
+            total_replaced += float(d.amount)
+
+        # Everything else successfully cleared into the bank
+        else:
+            d.ui_type = 'deposited'
+            total_in_bank += float(d.amount)
 
     context = {
-        'landlord': landlord, 'properties_count': properties.count(), 'total_units': total_units,
-        'occupancy_rate': occupancy_rate, 'kpi_sums': kpi_sums, 'recent_transactions': recent_transactions,
-        'notifications': notifications, 'notif_count': len(notifications)
+        'landlord': landlord,
+        'in_bank_vouchers': filtered_deposits,
+        'total_in_bank': total_in_bank,
+        'total_bounced': total_bounced,
+        'total_replaced': total_replaced,
+        'filters': {'date_from_bank': date_from_bank, 'date_to_bank': date_to_bank, 'search': search_query},
+        'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }
     return render(request, 'realestate/owner_dashboard.html', context)
 
@@ -858,20 +953,19 @@ def owner_cashflow(request, landlord_id):
         vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
     else:
         vouchers = BankDeposit.objects.all()
-
-        # --- AUTO-MATCHING ENGINE ---
         # --- AUTO-MATCHING ENGINE ---
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
-    all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('date', 'id'))
 
+        # THE FIX: Added 'CBR' to the query so Bounced Receipts actually load!
+    all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
+    import itertools
+    from datetime import datetime
 
-
+    TOLERANCE = 6.0
 
     for d in all_deposits:
         d.linked_cros = []
-
-            # GOLDEN RULE: Only BRVs absorb physical cash/cheques.
         if d.doc_abbr != 'BRV':
             continue
 
@@ -880,7 +974,6 @@ def owner_cashflow(request, landlord_id):
                                 reverse=True)
         matched = False
 
-            # Method 1: Exact Single Match (Must be mathematically perfect)
         for cro in valid_cros:
             if abs(float(cro.amount) - target) < 0.05:
                 d.linked_cros = [cro]
@@ -888,7 +981,6 @@ def owner_cashflow(request, landlord_id):
                 matched = True
                 break
 
-            # Method 2: Reverse Sequential "Stack" Match (Allows 6 AED petty cash / bank fee variance)
         if not matched:
             for i in range(len(valid_cros)):
                 current_sum = 0.0
@@ -896,23 +988,20 @@ def owner_cashflow(request, landlord_id):
                 for j in range(i, len(valid_cros)):
                     current_sum += float(valid_cros[j].amount)
                     temp_match.append(valid_cros[j])
-
-                        # 6 AED Tolerance applied ONLY to sequential stacks
-                    if abs(current_sum - target) <= 6.0:
+                    if abs(current_sum - target) <= TOLERANCE:
                         d.linked_cros = sorted(temp_match, key=lambda x: x.date)
                         for m in temp_match:
                             unmatched_cros.remove(m)
                         matched = True
                         break
-                    elif current_sum > target + 6.0:
+                    elif current_sum > target + TOLERANCE:
                         break
                 if matched: break
 
-            # Method 3: Flexible Fallback (Must be mathematically perfect to prevent stealing)
         if not matched and valid_cros:
             recent_cros = valid_cros[:50]
             combo_found = False
-            for r in range(2, min(6, len(recent_cros) + 1)):
+            for r in range(2, min(7, len(recent_cros) + 1)):
                 for combo in itertools.combinations(recent_cros, r):
                     if abs(sum(float(c.amount) for c in combo) - target) < 0.05:
                         d.linked_cros = sorted(list(combo), key=lambda x: x.date)
@@ -923,7 +1012,6 @@ def owner_cashflow(request, landlord_id):
                 if combo_found: break
 
         # --- APPLY UI FILTERS TO RESULTS ---
-    # --- APPLY UI FILTERS TO RESULTS ---
     filtered_deposits = all_deposits
 
     if date_from_bank:
@@ -938,19 +1026,43 @@ def owner_cashflow(request, landlord_id):
         filtered_deposits = [
             b for b in filtered_deposits
             if (b.narration and sq in b.narration.lower())
-               or (b.voucher_no and sq in b.voucher_no.lower())
-               or (b.tenant and sq in b.tenant.lower())
-               or (b.cheque_no and sq in b.cheque_no.lower())
+                or (b.voucher_no and sq in b.voucher_no.lower())
+                or (b.tenant and sq in b.tenant.lower())
+                or (b.cheque_no and sq in b.cheque_no.lower())
         ]
 
-    # Sort descending for UI display
     filtered_deposits.sort(key=lambda x: x.date, reverse=True)
-    total_in_bank = sum(float(b.amount) for b in filtered_deposits)
+        # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
+    cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
+    collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
+    cheque_status_map = {str(c.cheque_number).strip(): c.status for c in collections if c.cheque_number}
+
+    total_in_bank = 0.0
+    total_bounced = 0.0
+    total_replaced = 0.0
+
+    for d in filtered_deposits:
+        # A CBR voucher is specifically a Cheque Bounced Receipt
+        if d.doc_abbr == 'CBR':
+            d.ui_type = 'bounced'
+            total_bounced += float(d.amount)
+
+        # If it's NOT a CBR, but PACT flagged it with 429, it was Replaced
+        elif str(d.pact_status_id).strip() == '429':
+            d.ui_type = 'replaced'
+            total_replaced += float(d.amount)
+
+        # Everything else successfully cleared into the bank
+        else:
+            d.ui_type = 'deposited'
+            total_in_bank += float(d.amount)
 
     context = {
         'landlord': landlord,
         'in_bank_vouchers': filtered_deposits,
         'total_in_bank': total_in_bank,
+        'total_bounced': total_bounced,
+        'total_replaced': total_replaced,
         'filters': {'date_from_bank': date_from_bank, 'date_to_bank': date_to_bank, 'search': search_query},
         'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }

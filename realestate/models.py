@@ -298,7 +298,7 @@ class BankDeposit(models.Model):
     tower = models.CharField(max_length=255, blank=True, null=True)
     cheque_no = models.CharField(max_length=100, blank=True, null=True)
     cheque_date = models.CharField(max_length=100, blank=True, null=True)
-
+    pact_status_id = models.CharField(max_length=50, blank=True, null=True)
     last_updated = models.DateTimeField(auto_now=True)
 
     def __str__(self):
