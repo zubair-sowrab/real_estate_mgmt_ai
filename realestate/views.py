@@ -846,7 +846,7 @@ def owner_cashflow(request, landlord_id):
 
     if not bool(request.GET):
         today = timezone.now().date()
-        date_from_bank = date(today.year, 1, 1).strftime("%Y-%m-%d")
+        date_from_bank = "2025-12-31"
         date_to_bank = today.strftime("%Y-%m-%d")
 
     pact_ll_id = str(landlord.pact_landlord_id).strip()
