@@ -31,6 +31,9 @@ class Property(models.Model):
     name = models.CharField(max_length=255)
     location = models.CharField(max_length=255, blank=True, null=True)
     total_units = models.IntegerField(default=0)
+    # THE TRUE LEDGER LINK
+    rental_receivable_account_id = models.CharField(max_length=100, blank=True, null=True)
+
 
     class Meta:
         verbose_name_plural = "Properties"
@@ -116,7 +119,11 @@ class Contract(models.Model):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
 
-
+    pact_costcenter_id = models.CharField(max_length=100, blank=True, null=True)
+    true_total_rent = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    true_total_paid = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    true_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    true_ledger_json = models.TextField(blank=True, null=True)
 
     def get_parsed_extras(self):
         """Safely unpacks the extra charges for the UI"""
