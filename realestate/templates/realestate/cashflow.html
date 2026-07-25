@@ -3,89 +3,25 @@
 
 {% block extra_css %}
 <style>
-    /* --- MODERN GRID SYSTEM (Replaces the broken HTML Table) --- */
-    .ledger-container {
-        background: white;
-        border-radius: 8px;
-        border: 1px solid #e2e8f0;
-        overflow: hidden;
-    }
-    .deposit-header {
-        display: grid;
-        grid-template-columns: 1.5fr 3.5fr 1fr;
-        gap: 15px;
-        padding: 15px 20px;
-        background: #f8fafc;
-        border-bottom: 1px solid #e2e8f0;
-        font-weight: 600;
-        color: #475569;
-        font-size: 0.85rem;
-    }
-    .deposit-item {
-        border-bottom: 1px solid #e2e8f0;
-    }
-    .deposit-item:last-child {
-        border-bottom: none;
-    }
-    .deposit-row {
-        display: grid;
-        grid-template-columns: 1.5fr 3.5fr 1fr;
-        gap: 15px;
-        padding: 20px;
-        cursor: pointer;
-        transition: background 0.2s;
-        align-items: start;
-    }
-    .deposit-row:hover {
-        background: #f8fafc;
-    }
-    .amt-col {
-        text-align: right;
-        font-weight: bold;
-        color: #10b981;
-        font-size: 1.05rem;
-    }
-    .dropdown-pane {
-        display: none;
-        background: #f8fafc;
-        padding: 20px;
-        border-top: 1px solid #cbd5e1;
-        box-shadow: inset 0px 4px 6px -4px rgba(0,0,0,0.1);
-    }
-    .inner-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 0.85rem;
-        background: white;
-        border: 1px solid #e2e8f0;
-    }
-    .inner-table th, .inner-table td {
-        padding: 10px 12px;
-        text-align: left;
-        border-bottom: 1px solid #f1f5f9;
-    }
+    .ledger-container { background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; }
+    .deposit-header { display: grid; grid-template-columns: 1.5fr 3.5fr 1fr; gap: 15px; padding: 15px 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #475569; font-size: 0.85rem; }
+    .deposit-item { border-bottom: 1px solid #e2e8f0; }
+    .deposit-item:last-child { border-bottom: none; }
+    .deposit-row { display: grid; grid-template-columns: 1.5fr 3.5fr 1fr; gap: 15px; padding: 20px; cursor: pointer; transition: background 0.2s; align-items: start; }
+    .deposit-row:hover { background: #f8fafc; }
+    .amt-col { text-align: right; font-weight: bold; color: #10b981; font-size: 1.05rem; }
+    .dropdown-pane { display: none; background: #f8fafc; padding: 20px; border-top: 1px solid #cbd5e1; box-shadow: inset 0px 4px 6px -4px rgba(0,0,0,0.1); }
+    .inner-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: white; border: 1px solid #e2e8f0; }
+    .inner-table th, .inner-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #f1f5f9; }
     .inner-table th { background: #fffbeb; color: #b45309; }
     .inner-table td.amt { text-align: right; color: #d97706; font-weight: bold; }
 
-    /* --- MOBILE RESPONSIVE FIX (Eliminates Side-Scroll) --- */
     @media (max-width: 768px) {
-        .deposit-header { display: none; } /* Hide headers on small screens */
-        .deposit-row {
-            grid-template-columns: 1fr; /* Stack columns vertically */
-            gap: 12px;
-            padding: 15px;
-        }
-        .amt-col {
-            text-align: left; /* Move amount to the left */
-            font-size: 1.2rem;
-            padding-top: 10px;
-            border-top: 1px dashed #cbd5e1;
-        }
-        .table-responsive {
-            overflow-x: auto; /* Allows only the inner data to swipe left/right */
-            -webkit-overflow-scrolling: touch;
-        }
-        .inner-table { min-width: 500px; } /* Prevents text squishing */
+        .deposit-header { display: none; }
+        .deposit-row { grid-template-columns: 1fr; gap: 12px; padding: 15px; }
+        .amt-col { text-align: left; font-size: 1.2rem; padding-top: 10px; border-top: 1px dashed #cbd5e1; }
+        .table-responsive { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .inner-table { min-width: 500px; }
     }
 </style>
 {% endblock %}
@@ -112,14 +48,12 @@
     </div>
 </form>
 
-<!-- KPI CARD -->
 <div style="margin-bottom: 30px; background: #ecfdf5; border: 1px solid #a7f3d0; padding: 20px; border-radius: 8px; text-align: center;">
     <h4 style="color: #065f46; margin: 0 0 10px 0;">Total Deposited (In Bank)</h4>
     <h2 style="color: #047857; margin: 0;">AED {{ total_in_bank|floatformat:"2g" }}</h2>
 </div>
 
-<!-- MODERN GRID LEDGER -->
-<h3 style="color: var(--text-main); border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-bottom: 15px;">Bank Deposits</h3>
+<h3 style="color: var(--text-main); border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-bottom: 15px;">Bank Deposits (BRV, CRT, CRVM)</h3>
 
 <div class="ledger-container">
     <div class="deposit-header">
@@ -130,7 +64,6 @@
 
     {% for d in in_bank_vouchers %}
     <div class="deposit-item">
-        <!-- CLICKABLE MAIN ROW -->
         <div class="deposit-row" onclick="toggleAccordion('pane-{{ d.id }}', 'icon-{{ d.id }}')">
             <div>
                 <strong style="color: #3b82f6; font-size: 0.95rem;">{{ d.voucher_no }}</strong><br>
@@ -158,12 +91,9 @@
                 </div>
             </div>
 
-            <div class="amt-col">
-                AED {{ d.amount|floatformat:"2g" }}
-            </div>
+            <div class="amt-col">AED {{ d.amount|floatformat:"2g" }}</div>
         </div>
 
-        <!-- HIDDEN DROPDOWN ACCORDION -->
         {% if d.doc_abbr == 'BRV' %}
         <div id="pane-{{ d.id }}" class="dropdown-pane">
             <h4 style="margin: 0 0 15px 0; color: #b45309;"><i class="fa-solid fa-receipt"></i> Included Cash Receipts (CRO/CRV)</h4>
@@ -172,22 +102,14 @@
             <div class="table-responsive">
                 <table class="inner-table">
                     <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Voucher</th>
-                            <th>Tenant / Details</th>
-                            <th style="text-align: right;">Amount</th>
-                        </tr>
+                        <tr><th>Date</th><th>Voucher</th><th>Tenant / Details</th><th style="text-align: right;">Amount</th></tr>
                     </thead>
                     <tbody>
                         {% for cro in d.linked_cros %}
                         <tr>
                             <td style="white-space: nowrap;">{{ cro.date|date:"d/m/Y" }}</td>
                             <td style="font-weight: 600; white-space: nowrap;">{{ cro.voucher_no }}</td>
-                            <td>
-                                {% if cro.tenant %}<strong style="color: var(--dark-sidebar);">{{ cro.tenant }}</strong><br>{% endif %}
-                                <span style="color: #64748b;">{{ cro.narration }}</span>
-                            </td>
+                            <td>{% if cro.tenant %}<strong style="color: var(--dark-sidebar);">{{ cro.tenant }}</strong><br>{% endif %}<span style="color: #64748b;">{{ cro.narration }}</span></td>
                             <td class="amt" style="white-space: nowrap;">AED {{ cro.amount|floatformat:"2g" }}</td>
                         </tr>
                         {% endfor %}
@@ -217,16 +139,10 @@
 
         if (pane.style.display === 'none' || pane.style.display === '') {
             pane.style.display = 'block';
-            if (icon) {
-                icon.classList.remove('fa-chevron-down');
-                icon.classList.add('fa-chevron-up');
-            }
+            if (icon) { icon.classList.remove('fa-chevron-down'); icon.classList.add('fa-chevron-up'); }
         } else {
             pane.style.display = 'none';
-            if (icon) {
-                icon.classList.remove('fa-chevron-up');
-                icon.classList.add('fa-chevron-down');
-            }
+            if (icon) { icon.classList.remove('fa-chevron-up'); icon.classList.add('fa-chevron-down'); }
         }
     }
 </script>

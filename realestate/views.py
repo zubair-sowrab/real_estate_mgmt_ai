@@ -860,16 +860,13 @@ def owner_cashflow(request, landlord_id):
         vouchers = BankDeposit.objects.all()
 
         # --- AUTO-MATCHING ENGINE ---
+        # --- AUTO-MATCHING ENGINE ---
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('date', 'id'))
 
     unmatched_cros = all_cros.copy()
 
-    import itertools
-    from datetime import datetime
 
-        # THE FIX: Allow up to 6 AED variance for bank fees, rounding, or petty cash diffs!
-    TOLERANCE = 6.0
 
     for d in all_deposits:
         d.linked_cros = []
@@ -879,21 +876,19 @@ def owner_cashflow(request, landlord_id):
             continue
 
         target = float(d.amount)
-
-            # Sort backwards! Most recent receipts (closest to deposit date) are checked first.
         valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date], key=lambda x: (x.date, x.id),
                                 reverse=True)
         matched = False
 
-            # Method 1: Exact Single Match (with tolerance)
+            # Method 1: Exact Single Match (Must be mathematically perfect)
         for cro in valid_cros:
-            if abs(float(cro.amount) - target) <= TOLERANCE:
+            if abs(float(cro.amount) - target) < 0.05:
                 d.linked_cros = [cro]
                 unmatched_cros.remove(cro)
                 matched = True
                 break
 
-            # Method 2: Reverse Sequential "Stack" Match (with tolerance)
+            # Method 2: Reverse Sequential "Stack" Match (Allows 6 AED petty cash / bank fee variance)
         if not matched:
             for i in range(len(valid_cros)):
                 current_sum = 0.0
@@ -902,24 +897,24 @@ def owner_cashflow(request, landlord_id):
                     current_sum += float(valid_cros[j].amount)
                     temp_match.append(valid_cros[j])
 
-                    if abs(current_sum - target) <= TOLERANCE:
-                            # Sort them chronologically again so they look nice in the UI
+                        # 6 AED Tolerance applied ONLY to sequential stacks
+                    if abs(current_sum - target) <= 6.0:
                         d.linked_cros = sorted(temp_match, key=lambda x: x.date)
                         for m in temp_match:
                             unmatched_cros.remove(m)
                         matched = True
                         break
-                    elif current_sum > target + TOLERANCE:
-                        break  # Went over target + tolerance, stop adding to this stack
+                    elif current_sum > target + 6.0:
+                        break
                 if matched: break
 
-            # Method 3: Flexible Fallback (with tolerance)
+            # Method 3: Flexible Fallback (Must be mathematically perfect to prevent stealing)
         if not matched and valid_cros:
-            recent_cros = valid_cros[:50]  # Grabs the newest 50 unbanked receipts
+            recent_cros = valid_cros[:50]
             combo_found = False
-            for r in range(2, min(7, len(recent_cros) + 1)):
+            for r in range(2, min(6, len(recent_cros) + 1)):
                 for combo in itertools.combinations(recent_cros, r):
-                    if abs(sum(float(c.amount) for c in combo) - target) <= TOLERANCE:
+                    if abs(sum(float(c.amount) for c in combo) - target) < 0.05:
                         d.linked_cros = sorted(list(combo), key=lambda x: x.date)
                         for m in combo:
                             unmatched_cros.remove(m)
@@ -927,6 +922,7 @@ def owner_cashflow(request, landlord_id):
                         break
                 if combo_found: break
 
+        # --- APPLY UI FILTERS TO RESULTS ---
     # --- APPLY UI FILTERS TO RESULTS ---
     filtered_deposits = all_deposits
 
