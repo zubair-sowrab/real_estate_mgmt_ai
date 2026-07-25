@@ -276,41 +276,60 @@ def owner_dashboard(request, landlord_id):
 
     filtered_deposits.sort(key=lambda x: x.date, reverse=True)
     # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
+    # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
     cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
     collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
     cheque_status_map = {str(c.cheque_number).strip(): c.status for c in collections if c.cheque_number}
+
+    # 1. Identify all vouchers that have been reversed by a CBR
+    reversed_suffixes = set()
+    for d in filtered_deposits:
+        if d.doc_abbr == 'CBR':
+            # Extracts '08/26/432' from 'CBR-08/26/432'
+            suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
+            reversed_suffixes.add(suffix)
 
     total_in_bank = 0.0
     total_bounced = 0.0
     total_replaced = 0.0
 
+    clean_ui_deposits = []
+
     for d in filtered_deposits:
-        # A CBR voucher is specifically a Cheque Bounced Receipt
+        # Get the current voucher's ID suffix
+        suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
+
         if d.doc_abbr == 'CBR':
             d.ui_type = 'bounced'
             total_bounced += float(d.amount)
+            clean_ui_deposits.append(d)  # Show the red CBR row so you know it bounced
 
-        # If it's NOT a CBR, but PACT flagged it with 429, it was Replaced
+        elif suffix in reversed_suffixes:
+            # HUNTER-KILLER: This is the original CRT that got reversed by the CBR above!
+            # It did NOT clear the bank. We DO NOT add it to total_in_bank.
+            # We completely hide it from the UI so it doesn't show the confusing "Cleared" duplicate!
+            continue
+
         elif str(d.pact_status_id).strip() == '429':
             d.ui_type = 'replaced'
             total_replaced += float(d.amount)
+            clean_ui_deposits.append(d)  # Show the orange replaced row
 
-        # Everything else successfully cleared into the bank
         else:
             d.ui_type = 'deposited'
             total_in_bank += float(d.amount)
+            clean_ui_deposits.append(d)  # Show the green cleared row
 
     context = {
         'landlord': landlord,
-        'in_bank_vouchers': filtered_deposits,
+        'in_bank_vouchers': clean_ui_deposits,  # <-- Send the cleaned list to the screen
         'total_in_bank': total_in_bank,
         'total_bounced': total_bounced,
         'total_replaced': total_replaced,
         'filters': {'date_from_bank': date_from_bank, 'date_to_bank': date_to_bank, 'search': search_query},
         'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }
-    return render(request, 'realestate/owner_dashboard.html', context)
-
+    return render(request, 'realestate/cashflow.html', context)
 
 @login_required(login_url='/login/')
 def owner_properties(request, landlord_id):
