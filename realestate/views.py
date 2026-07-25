@@ -846,7 +846,7 @@ def owner_cashflow(request, landlord_id):
 
     if not bool(request.GET):
         today = timezone.now().date()
-        # Changed default start date from Jan 1st of current year to Dec 31st, 2025
+
         date_from_bank = "2025-12-31"
         date_to_bank = today.strftime("%Y-%m-%d")
 
