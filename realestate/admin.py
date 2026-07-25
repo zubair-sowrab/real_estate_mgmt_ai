@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Landlord, Property, Unit, Tenant, Contract, Collection
+from .models import Landlord, Property, Unit, Tenant, Contract, Collection, BankDeposit
 
 # Customize the Admin headers to match your brand
 admin.site.site_header = "YBN Real Estate Secure Admin"
@@ -70,3 +70,11 @@ class CollectionAdmin(admin.ModelAdmin):
     list_filter = ('status', 'payment_type', 'due_date')
     search_fields = ('cheque_number', 'pact_transaction_id', 'contract__tenant__full_name')
     date_hierarchy = 'due_date' # Adds a timeline drill-down filter at the top of the page
+
+
+@admin.register(BankDeposit)
+class BankDepositAdmin(admin.ModelAdmin):
+    list_display = ('voucher_no', 'date', 'amount', 'doc_abbr', 'tenant', 'cheque_no', 'pact_status_id')
+    search_fields = ('voucher_no', 'tenant', 'cheque_no', 'narration')
+    list_filter = ('doc_abbr', 'pact_status_id', 'date')
+    ordering = ('-date',)
