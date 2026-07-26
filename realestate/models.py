@@ -303,3 +303,16 @@ class BankDeposit(models.Model):
 
     def __str__(self):
         return f"{self.voucher_no} - AED {self.amount}"
+
+
+class ContractLedger(models.Model):
+    contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name='true_ledger_entries')
+    doc_date = models.DateField()
+    doc_no = models.CharField(max_length=100)
+    doc_abbr = models.CharField(max_length=20)
+    debit_account = models.CharField(max_length=255, blank=True, null=True)
+    credit_account = models.CharField(max_length=255, blank=True, null=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        ordering = ['doc_date', 'id']

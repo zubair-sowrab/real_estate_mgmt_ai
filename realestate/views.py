@@ -184,7 +184,6 @@ def owner_dashboard(request, landlord_id):
 
     if not bool(request.GET):
         today = timezone.now().date()
-
         date_from_bank = "2025-12-31"
         date_to_bank = today.strftime("%Y-%m-%d")
 
@@ -196,57 +195,134 @@ def owner_dashboard(request, landlord_id):
         vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
     else:
         vouchers = BankDeposit.objects.all()
-        # --- AUTO-MATCHING ENGINE ---
-    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
 
-    # THE FIX: Added 'CBR' to the query so Bounced Receipts actually load!
+    # --- AUTO-MATCHING ENGINE ---
+    # Added CRT and CRVM so the engine can find electronic transfers
+    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO', 'CRT', 'CRVM']).order_by('date', 'id'))
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
     import itertools
     from datetime import datetime
 
-    TOLERANCE = 6.0
+    TOLERANCE = 10.0
+
+    # 1. SMART BUNDLING: Group ONLY "Cash" BRVs that share the exact same day.
+    # "Cheque" BRVs (which have a cheque_no or cheque_date) remain entirely separate.
+    consolidated_deposits = []
+    cash_brv_dict = {}
 
     for d in all_deposits:
+        if d.doc_abbr == 'BRV':
+            # Check if it has cheque fields
+            has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
+            has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
+
+            if has_cheque or has_date:
+                consolidated_deposits.append(d)  # Keep Cheque BRVs isolated
+            else:
+                if d.date not in cash_brv_dict:
+                    cash_brv_dict[d.date] = []
+                cash_brv_dict[d.date].append(d)
+        else:
+            consolidated_deposits.append(d)
+
+    # Merge the Cash BRVs on the same day
+    for dt, brvs in cash_brv_dict.items():
+        if len(brvs) == 1:
+            consolidated_deposits.append(brvs[0])
+        else:
+            primary = brvs[0]
+            if '/' in primary.voucher_no:
+                prefix = primary.voucher_no.rsplit('/', 1)[0] + '/'
+                suffixes = [b.voucher_no.rsplit('/', 1)[-1] for b in brvs if '/' in b.voucher_no]
+                primary.voucher_no = f"{prefix}{' & '.join(suffixes)}"
+            else:
+                primary.voucher_no = " & ".join([b.voucher_no for b in brvs])
+
+            primary.amount = sum(float(b.amount) for b in brvs)
+            consolidated_deposits.append(primary)
+
+    # Sort ASCENDING (Oldest first) for FIFO chronological matching
+    consolidated_deposits.sort(key=lambda x: x.date)
+
+    for d in consolidated_deposits:
         d.linked_cros = []
         if d.doc_abbr != 'BRV':
             continue
 
         target = float(d.amount)
-        valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date], key=lambda x: (x.date, x.id),
-                            reverse=True)
         matched = False
 
+        # --- TIER 1: CHEQUE DATE / NO. PRIORITY MATCH ---
+        if d.cheque_date or d.cheque_no:
+            # Deep search backward 45 days for explicit cheque matches
+            deep_search_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 45],
+                                      key=lambda x: (x.date, x.id), reverse=True)
+
+            for cro in deep_search_cros:
+                cro_amt = float(cro.amount)
+                if abs(cro_amt - target) <= TOLERANCE:
+                    date_match = False
+                    if d.cheque_date:
+                        try:
+                            parsed_chq_date = datetime.strptime(str(d.cheque_date).strip(), '%d/%m/%Y').date()
+                            if cro.date == parsed_chq_date:
+                                date_match = True
+                        except:
+                            pass
+
+                    chq_no_match = False
+                    if d.cheque_no and cro.cheque_no and str(d.cheque_no).strip() == str(cro.cheque_no).strip():
+                        chq_no_match = True
+
+                    if date_match or chq_no_match:
+                        d.linked_cros = [cro]
+                        unmatched_cros.remove(cro)
+                        matched = True
+                        break
+
+        if matched: continue
+
+        # Filter the remaining pool for the chronological search (14 days lookback limit)
+        valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 14],
+                            key=lambda x: (x.date, x.id), reverse=True)
+
+        # --- TIER 2: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
         for cro in valid_cros:
-            if abs(float(cro.amount) - target) < 0.05:
+            if abs(float(cro.amount) - target) <= TOLERANCE:
                 d.linked_cros = [cro]
                 unmatched_cros.remove(cro)
                 matched = True
                 break
 
-        if not matched:
-            for i in range(len(valid_cros)):
-                current_sum = 0.0
-                temp_match = []
-                for j in range(i, len(valid_cros)):
-                    current_sum += float(valid_cros[j].amount)
-                    temp_match.append(valid_cros[j])
-                    if abs(current_sum - target) <= TOLERANCE:
-                        d.linked_cros = sorted(temp_match, key=lambda x: x.date)
-                        for m in temp_match:
-                            unmatched_cros.remove(m)
-                        matched = True
-                        break
-                    elif current_sum > target + TOLERANCE:
-                        break
-                if matched: break
+        if matched: continue
 
-        if not matched and valid_cros:
-            recent_cros = valid_cros[:50]
+        # --- TIER 3: CONTIGUOUS COMBINATIONS ---
+        for i in range(len(valid_cros)):
+            current_sum = 0.0
+            temp_match = []
+            for j in range(i, len(valid_cros)):
+                current_sum += float(valid_cros[j].amount)
+                temp_match.append(valid_cros[j])
+                if abs(current_sum - target) <= TOLERANCE:
+                    d.linked_cros = sorted(temp_match, key=lambda x: x.date)
+                    for m in temp_match:
+                        unmatched_cros.remove(m)
+                    matched = True
+                    break
+                elif current_sum > target + TOLERANCE:
+                    break
+            if matched: break
+
+        if matched: continue
+
+        # --- TIER 4: RANDOM COMBINATIONS ---
+        if valid_cros:
+            recent_cros = valid_cros[:20]
             combo_found = False
             for r in range(2, min(7, len(recent_cros) + 1)):
                 for combo in itertools.combinations(recent_cros, r):
-                    if abs(sum(float(c.amount) for c in combo) - target) < 0.05:
+                    if abs(sum(float(c.amount) for c in combo) - target) <= TOLERANCE:
                         d.linked_cros = sorted(list(combo), key=lambda x: x.date)
                         for m in combo:
                             unmatched_cros.remove(m)
@@ -254,75 +330,80 @@ def owner_dashboard(request, landlord_id):
                         break
                 if combo_found: break
 
-        # --- APPLY UI FILTERS TO RESULTS ---
-    filtered_deposits = all_deposits
+    # --- Re-sort DESCENDING (Newest first) for the UI ---
+    consolidated_deposits.sort(key=lambda x: x.date, reverse=True)
 
-    if date_from_bank:
-        d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
-        filtered_deposits = [b for b in filtered_deposits if b.date >= d_from]
-    if date_to_bank:
-        d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
-        filtered_deposits = [b for b in filtered_deposits if b.date <= d_to]
+    filtered_deposits = consolidated_deposits
 
-    if search_query:
-        sq = search_query.lower()
-        filtered_deposits = [
-            b for b in filtered_deposits
-            if (b.narration and sq in b.narration.lower())
-               or (b.voucher_no and sq in b.voucher_no.lower())
-               or (b.tenant and sq in b.tenant.lower())
-               or (b.cheque_no and sq in b.cheque_no.lower())
-        ]
-
-    filtered_deposits.sort(key=lambda x: x.date, reverse=True)
-    # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
-    # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
+    # --- CROSS-REFERENCE CHEQUE STATUSES & HUNTER-KILLER ---
     cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
     collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
-    cheque_status_map = {str(c.cheque_number).strip(): c.status for c in collections if c.cheque_number}
 
     # 1. Identify all vouchers that have been reversed by a CBR
     reversed_suffixes = set()
     for d in filtered_deposits:
         if d.doc_abbr == 'CBR':
-            # Extracts '08/26/432' from 'CBR-08/26/432'
             suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
             reversed_suffixes.add(suffix)
 
     total_in_bank = 0.0
     total_bounced = 0.0
     total_replaced = 0.0
-
     clean_ui_deposits = []
 
     for d in filtered_deposits:
-        # Get the current voucher's ID suffix
         suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
 
         if d.doc_abbr == 'CBR':
             d.ui_type = 'bounced'
             total_bounced += float(d.amount)
-            clean_ui_deposits.append(d)  # Show the red CBR row so you know it bounced
+            clean_ui_deposits.append(d)
 
         elif suffix in reversed_suffixes:
-            # HUNTER-KILLER: This is the original CRT that got reversed by the CBR above!
-            # It did NOT clear the bank. We DO NOT add it to total_in_bank.
-            # We completely hide it from the UI so it doesn't show the confusing "Cleared" duplicate!
+            # HUNTER-KILLER: Hide the original cancelled CRT so it doesn't duplicate
             continue
 
         elif str(d.pact_status_id).strip() == '429':
             d.ui_type = 'replaced'
             total_replaced += float(d.amount)
-            clean_ui_deposits.append(d)  # Show the orange replaced row
+            clean_ui_deposits.append(d)
 
         else:
             d.ui_type = 'deposited'
             total_in_bank += float(d.amount)
-            clean_ui_deposits.append(d)  # Show the green cleared row
+            clean_ui_deposits.append(d)
+
+    # Apply the Date UI filters AFTER the engine so the math isn't ruined by hiding rows
+    final_ui_list = []
+    for d in clean_ui_deposits:
+        keep = True
+        if date_from_bank:
+            try:
+                d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
+                if d.date < d_from: keep = False
+            except:
+                pass
+        if date_to_bank:
+            try:
+                d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
+                if d.date > d_to: keep = False
+            except:
+                pass
+
+        if search_query:
+            sq = search_query.lower()
+            if not ((d.narration and sq in d.narration.lower())
+                    or (d.voucher_no and sq in d.voucher_no.lower())
+                    or (d.tenant and sq in d.tenant.lower())
+                    or (d.cheque_no and sq in d.cheque_no.lower())):
+                keep = False
+
+        if keep:
+            final_ui_list.append(d)
 
     context = {
         'landlord': landlord,
-        'in_bank_vouchers': clean_ui_deposits,  # <-- Send the cleaned list to the screen
+        'in_bank_vouchers': final_ui_list,
         'total_in_bank': total_in_bank,
         'total_bounced': total_bounced,
         'total_replaced': total_replaced,
