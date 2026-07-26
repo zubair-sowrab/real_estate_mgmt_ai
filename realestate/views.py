@@ -346,9 +346,6 @@ def owner_dashboard(request, landlord_id):
             suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
             reversed_suffixes.add(suffix)
 
-    total_in_bank = 0.0
-    total_bounced = 0.0
-    total_replaced = 0.0
     clean_ui_deposits = []
 
     for d in filtered_deposits:
@@ -356,7 +353,6 @@ def owner_dashboard(request, landlord_id):
 
         if d.doc_abbr == 'CBR':
             d.ui_type = 'bounced'
-            total_bounced += float(d.amount)
             clean_ui_deposits.append(d)
 
         elif suffix in reversed_suffixes:
@@ -365,24 +361,28 @@ def owner_dashboard(request, landlord_id):
 
         elif str(d.pact_status_id).strip() == '429':
             d.ui_type = 'replaced'
-            total_replaced += float(d.amount)
             clean_ui_deposits.append(d)
 
         else:
             d.ui_type = 'deposited'
-            total_in_bank += float(d.amount)
             clean_ui_deposits.append(d)
 
-    # Apply the Date UI filters AFTER the engine so the math isn't ruined by hiding rows
+    # --- APPLY UI FILTERS & DYNAMIC MATH ---
     final_ui_list = []
+    total_in_bank = 0.0
+    total_bounced = 0.0
+    total_replaced = 0.0
+
     for d in clean_ui_deposits:
         keep = True
+
         if date_from_bank:
             try:
                 d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
                 if d.date < d_from: keep = False
             except:
                 pass
+
         if date_to_bank:
             try:
                 d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
@@ -400,6 +400,13 @@ def owner_dashboard(request, landlord_id):
 
         if keep:
             final_ui_list.append(d)
+            # Add to totals ONLY if the row passes the date/search filter!
+            if d.ui_type == 'bounced':
+                total_bounced += float(d.amount)
+            elif d.ui_type == 'replaced':
+                total_replaced += float(d.amount)
+            elif d.ui_type == 'deposited':
+                total_in_bank += float(d.amount)
 
     context = {
         'landlord': landlord,
