@@ -197,9 +197,14 @@ def owner_dashboard(request, landlord_id):
         vouchers = BankDeposit.objects.all()
 
     # --- AUTO-MATCHING ENGINE ---
-    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO', 'CRT', 'CRVM']).order_by('date', 'id'))
+    # THE FIX: Explicitly REMOVED 'CRT' and 'CRVM' from this pool.
+    # BRVs are Cash Deposits, so they should ONLY hunt for CRV and CRO!
+    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
+
+    # CRT remains here so it still shows up correctly as a separate deposited row in the UI!
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
+
     import itertools
     from datetime import datetime
 
@@ -212,7 +217,6 @@ def owner_dashboard(request, landlord_id):
 
     for d in all_deposits:
         if d.doc_abbr == 'BRV':
-            # Check if it has cheque fields
             has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
             has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
 
@@ -249,22 +253,44 @@ def owner_dashboard(request, landlord_id):
         if d.doc_abbr != 'BRV':
             continue
 
-        # THE STRICT FIX: If the BRV has a cheque, completely skip the matching engine.
-        # It is a standalone transaction and should not pull out any CROs or CRTs.
-        has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
-        has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
-
-        if has_cheque or has_date:
-            continue
-
         target = float(d.amount)
         matched = False
+
+        # --- TIER 1: CHEQUE DATE / NO. PRIORITY MATCH (RESTORED!) ---
+        if d.cheque_date or d.cheque_no:
+            # Deep search backward 45 days for explicit cheque matches
+            deep_search_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 45],
+                                      key=lambda x: (x.date, x.id), reverse=True)
+
+            for cro in deep_search_cros:
+                cro_amt = float(cro.amount)
+                if abs(cro_amt - target) <= TOLERANCE:
+                    date_match = False
+                    if d.cheque_date:
+                        try:
+                            parsed_chq_date = datetime.strptime(str(d.cheque_date).strip(), '%d/%m/%Y').date()
+                            if cro.date == parsed_chq_date:
+                                date_match = True
+                        except:
+                            pass
+
+                    chq_no_match = False
+                    if d.cheque_no and cro.cheque_no and str(d.cheque_no).strip() == str(cro.cheque_no).strip():
+                        chq_no_match = True
+
+                    if date_match or chq_no_match:
+                        d.linked_cros = [cro]
+                        unmatched_cros.remove(cro)
+                        matched = True
+                        break
+
+        if matched: continue
 
         # Filter the remaining pool for the chronological search (14 days lookback limit)
         valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 14],
                             key=lambda x: (x.date, x.id), reverse=True)
 
-        # --- TIER 1: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
+        # --- TIER 2: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
         for cro in valid_cros:
             if abs(float(cro.amount) - target) <= TOLERANCE:
                 d.linked_cros = [cro]
@@ -274,7 +300,7 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 2: CONTIGUOUS COMBINATIONS ---
+        # --- TIER 3: CONTIGUOUS COMBINATIONS ---
         for i in range(len(valid_cros)):
             current_sum = 0.0
             temp_match = []
@@ -293,7 +319,7 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 3: RANDOM COMBINATIONS ---
+        # --- TIER 4: RANDOM COMBINATIONS ---
         if valid_cros:
             recent_cros = valid_cros[:20]
             combo_found = False
@@ -312,11 +338,11 @@ def owner_dashboard(request, landlord_id):
 
     filtered_deposits = consolidated_deposits
 
-    # --- CROSS-REFERENCE CHEQUE STATUSES & HUNTER-KILLER ---
+    # --- CROSS-REFERENCE CHEQUE STATUSES & UI HUNTER-KILLER ---
     cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
     collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
 
-    # 1. Identify all vouchers that have been reversed by a CBR
+    # Identify all vouchers that have been reversed by a CBR to hide from UI
     reversed_suffixes = set()
     for d in filtered_deposits:
         if d.doc_abbr == 'CBR':
@@ -333,7 +359,7 @@ def owner_dashboard(request, landlord_id):
             clean_ui_deposits.append(d)
 
         elif suffix in reversed_suffixes:
-            # HUNTER-KILLER: Hide the original cancelled CRT so it doesn't duplicate
+            # Hide the original cancelled CRT from the main list so it doesn't duplicate
             continue
 
         elif str(d.pact_status_id).strip() == '429':
