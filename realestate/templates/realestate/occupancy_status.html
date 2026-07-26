@@ -369,75 +369,34 @@
                                         </thead>
                                         <tbody>
                                             <tr style="background: #b45309; color: white; font-weight: bold;">
-                                                <td colspan="12" style="padding: 6px 8px;">Rent Receivable {{ eu.tower }}</td>
+                                                <td colspan="7" style="padding: 6px 8px;">Rent Receivable {{ eu.tower }}</td>
                                             </tr>
                                             <tr style="background: #fde047; color: black; font-weight: bold;">
-                                                <td colspan="12" style="padding: 6px 8px;">Tenant Name : {{ eu.tenant.full_name }}</td>
+                                                <td colspan="7" style="padding: 6px 8px;">Tenant Name : {{ eu.tenant.full_name }}</td>
                                             </tr>
-                                            <!-- ACTIVE ITEMS -->
-                                            {% for line in eu.latest_contract.generated_ledger_active %}
+                                            <!-- THE TRUE LEDGER -->
+                                            {% for line in eu.latest_contract.official_ledger %}
                                             <tr style="border-bottom: 1px solid #f1f5f9;">
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.doc_date|date:"d-m-Y" }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.doc_no }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.particular }}</td>
-                                                <td style="padding: 6px 8px; text-align: right; border-right: 1px solid #f1f5f9;">{% if line.debit > 0 %}{{ line.debit|floatformat:"2g" }}{% endif %}</td>
-                                                <td style="padding: 6px 8px; text-align: right; border-right: 1px solid #f1f5f9;">{% if line.credit > 0 %}{{ line.credit|floatformat:"2g" }}{% endif %}</td>
-                                                <td style="padding: 6px 8px; text-align: right; border-right: 1px solid #f1f5f9;">{{ line.balance|floatformat:"2g" }}Dr</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.unit_no }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.chq_no }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.bank }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.chq_date|date:"d/m/Y" }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.tracking }}</td>
-                                                <td style="padding: 6px 8px;">{{ line.contract_start|date:"d/m/Y" }}</td>
+                                                <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-weight: 500;">{{ line.doc_date|date:"d-m-Y" }}</td>
+                                                <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-weight: 600;">{{ line.doc_no }}</td>
+                                                <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-size: 0.75rem;">
+                                                    {% if line.is_debit %}{{ line.credit_account }}{% else %}{{ line.debit_account }}{% endif %}
+                                                </td>
+                                                <td style="padding: 8px; text-align: right; border-right: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;">{% if line.is_debit %}{{ line.amount|floatformat:"2g" }}{% else %}-{% endif %}</td>
+                                                <td style="padding: 8px; text-align: right; border-right: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;">{% if not line.is_debit %}{{ line.amount|floatformat:"2g" }}{% else %}-{% endif %}</td>
+                                                <td style="padding: 8px; text-align: right; border-right: 1px solid #e2e8f0; font-weight: bold; color: #1e293b;">{{ line.running_bal|floatformat:"2g" }} Dr</td>
+                                                <td style="padding: 8px; text-align: left; color: #64748b;">{{ eu.latest_contract.start_date|date:"d/m/Y" }}</td>
                                             </tr>
+                                            {% empty %}
+                                            <tr><td colspan="7" style="padding: 20px; text-align: center; color: #94a3b8;">No official ledger entries found for this contract.</td></tr>
                                             {% endfor %}
-                                            <tr style="background: #f8fafc; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1;">
-                                                <td colspan="3" style="padding: 6px 8px; text-align: left; color: #3b82f6;">Sub Total</td>
-                                                <td style="padding: 6px 8px; text-align: right;">{{ eu.latest_contract.active_debit|floatformat:"2g" }}</td>
-                                                <td style="padding: 6px 8px; text-align: right;">{{ eu.latest_contract.active_credit|floatformat:"2g" }}</td>
-                                                <td style="padding: 6px 8px; text-align: right;">{{ eu.latest_contract.active_bal|floatformat:"2g" }}Dr</td>
-                                                <td colspan="6"></td>
-                                            </tr>
 
-                                            <!-- PDCs -->
-                                            {% if eu.latest_contract.generated_ledger_pdc|length > 0 %}
-                                            <tr style="background: white; font-weight: bold; border-bottom: 1px solid #e2e8f0;">
-                                                <td colspan="12" style="padding: 6px 8px;">List Of PDCs</td>
-                                            </tr>
-                                            <tr style="background: white; font-weight: bold; border-bottom: 1px solid #e2e8f0;">
-                                                <td colspan="12" style="padding: 6px 8px;">Receipts</td>
-                                            </tr>
-                                            {% for line in eu.latest_contract.generated_ledger_pdc %}
-                                            <tr style="border-bottom: 1px solid #f1f5f9;">
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.doc_date|date:"d-m-Y" }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.doc_no }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.particular }}</td>
-                                                <td style="padding: 6px 8px; text-align: right; border-right: 1px solid #f1f5f9;">{% if line.debit > 0 %}{{ line.debit|floatformat:"2g" }}{% endif %}</td>
-                                                <td style="padding: 6px 8px; text-align: right; border-right: 1px solid #f1f5f9;">{% if line.credit > 0 %}{{ line.credit|floatformat:"2g" }}{% endif %}</td>
-                                                <td style="padding: 6px 8px; text-align: right; border-right: 1px solid #f1f5f9;">{{ line.balance|floatformat:"2g" }}Dr</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.unit_no }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.chq_no }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.bank }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.chq_date|date:"d/m/Y" }}</td>
-                                                <td style="padding: 6px 8px; border-right: 1px solid #f1f5f9;">{{ line.tracking }}</td>
-                                                <td style="padding: 6px 8px;">{{ line.contract_start|date:"d/m/Y" }}</td>
-                                            </tr>
-                                            {% endfor %}
-                                            <tr style="background: #f8fafc; border-top: 1px solid #cbd5e1; border-bottom: 1px solid #cbd5e1; color: #3b82f6;">
-                                                <td colspan="3" style="padding: 6px 8px; text-align: left;">Sub Total (Post Dated Receipts)</td>
-                                                <td style="padding: 6px 8px; text-align: right;">{% if eu.latest_contract.pdc_debit > 0 %}{{ eu.latest_contract.pdc_debit|floatformat:"2g" }}{% else %}0.00{% endif %}</td>
-                                                <td style="padding: 6px 8px; text-align: right;">{{ eu.latest_contract.pdc_credit|floatformat:"2g" }}</td>
-                                                <td style="padding: 6px 8px; text-align: right;">{{ eu.latest_contract.ledger_final_balance|floatformat:"2g" }}Dr</td>
-                                                <td colspan="6"></td>
-                                            </tr>
-                                            {% endif %}
-
-                                            <tr style="background: white; font-weight: bold; border-top: 1px solid #94a3b8; font-size: 0.85rem;">
-                                                <td colspan="3" style="padding: 8px; text-align: left; text-transform: uppercase;">REPORT TOTAL</td>
-                                                <td style="padding: 8px; text-align: right;">{{ eu.latest_contract.ledger_total_debit|floatformat:"2g" }}</td>
-                                                <td style="padding: 8px; text-align: right;">{{ eu.latest_contract.ledger_total_credit|floatformat:"2g" }}</td>
-                                                <td style="padding: 8px; text-align: right;">{{ eu.latest_contract.ledger_final_balance|floatformat:"2g" }}Dr</td>
-                                                <td colspan="6"></td>
+                                            <tr style="background: white; font-weight: bold; border-top: 2px solid #94a3b8; font-size: 0.95rem;">
+                                                <td colspan="3" style="padding: 12px; text-align: left; text-transform: uppercase;">REPORT TOTAL</td>
+                                                <td style="padding: 12px; text-align: right;">{{ eu.latest_contract.true_total_rent|floatformat:"2g" }}</td>
+                                                <td style="padding: 12px; text-align: right;">{{ eu.latest_contract.true_total_paid|floatformat:"2g" }}</td>
+                                                <td style="padding: 12px; text-align: right;">{{ eu.latest_contract.true_balance|floatformat:"2g" }} Dr</td>
+                                                <td></td>
                                             </tr>
                                         </tbody>
                                     </table>

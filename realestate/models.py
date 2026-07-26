@@ -313,6 +313,7 @@ class ContractLedger(models.Model):
     debit_account = models.CharField(max_length=255, blank=True, null=True)
     credit_account = models.CharField(max_length=255, blank=True, null=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_debit = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['doc_date', 'id']

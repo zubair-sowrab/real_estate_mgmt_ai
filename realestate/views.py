@@ -197,7 +197,6 @@ def owner_dashboard(request, landlord_id):
         vouchers = BankDeposit.objects.all()
 
     # --- AUTO-MATCHING ENGINE ---
-    # Added CRT and CRVM so the engine can find electronic transfers
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO', 'CRT', 'CRVM']).order_by('date', 'id'))
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
@@ -250,44 +249,22 @@ def owner_dashboard(request, landlord_id):
         if d.doc_abbr != 'BRV':
             continue
 
+        # THE STRICT FIX: If the BRV has a cheque, completely skip the matching engine.
+        # It is a standalone transaction and should not pull out any CROs or CRTs.
+        has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
+        has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
+
+        if has_cheque or has_date:
+            continue
+
         target = float(d.amount)
         matched = False
-
-        # --- TIER 1: CHEQUE DATE / NO. PRIORITY MATCH ---
-        if d.cheque_date or d.cheque_no:
-            # Deep search backward 45 days for explicit cheque matches
-            deep_search_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 45],
-                                      key=lambda x: (x.date, x.id), reverse=True)
-
-            for cro in deep_search_cros:
-                cro_amt = float(cro.amount)
-                if abs(cro_amt - target) <= TOLERANCE:
-                    date_match = False
-                    if d.cheque_date:
-                        try:
-                            parsed_chq_date = datetime.strptime(str(d.cheque_date).strip(), '%d/%m/%Y').date()
-                            if cro.date == parsed_chq_date:
-                                date_match = True
-                        except:
-                            pass
-
-                    chq_no_match = False
-                    if d.cheque_no and cro.cheque_no and str(d.cheque_no).strip() == str(cro.cheque_no).strip():
-                        chq_no_match = True
-
-                    if date_match or chq_no_match:
-                        d.linked_cros = [cro]
-                        unmatched_cros.remove(cro)
-                        matched = True
-                        break
-
-        if matched: continue
 
         # Filter the remaining pool for the chronological search (14 days lookback limit)
         valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 14],
                             key=lambda x: (x.date, x.id), reverse=True)
 
-        # --- TIER 2: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
+        # --- TIER 1: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
         for cro in valid_cros:
             if abs(float(cro.amount) - target) <= TOLERANCE:
                 d.linked_cros = [cro]
@@ -297,7 +274,7 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 3: CONTIGUOUS COMBINATIONS ---
+        # --- TIER 2: CONTIGUOUS COMBINATIONS ---
         for i in range(len(valid_cros)):
             current_sum = 0.0
             temp_match = []
@@ -316,7 +293,7 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 4: RANDOM COMBINATIONS ---
+        # --- TIER 3: RANDOM COMBINATIONS ---
         if valid_cros:
             recent_cros = valid_cros[:20]
             combo_found = False
@@ -629,7 +606,8 @@ def owner_occupancy_status(request, landlord_id):
     view_mode = request.GET.get('mode', 'full')
 
     properties = Property.objects.filter(owner=landlord).prefetch_related(
-        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections'))
+        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections',
+                                                                 'contracts__true_ledger_entries'))
     )
 
     property_data = []
@@ -650,17 +628,26 @@ def owner_occupancy_status(request, landlord_id):
 
             c_ledger_active = []
             c_ledger_pdc = []
-            run_bal = 0.0
 
-            # 1. Opening Contract Debit Line (Base Rent)
-            base_rent = float(c.net_rent_amount)
-            if base_rent > 0:
-                run_bal += base_rent
-                c_ledger_active.append({
-                    'doc_date': c.start_date, 'doc_no': f"TCO-{c.pact_contract_id[-6:]}",
-                    'particular': f"Advance Rent {c.unit.property_asset.name}", 'debit': base_rent, 'credit': 0.0,
-                    'balance': run_bal, 'unit_no': c.unit.unit_number, 'chq_no': '', 'bank': '', 'chq_date': '',
-                    'tracking': '2950', 'contract_start': c.start_date
+            # --- 1. THE PACT LEDGER CALCULATOR ---
+            running_bal = 0.0
+            run_bal = 0.0  # THE FIX: Initialize the variable for the Quick View calculator!
+            c.official_ledger = []
+
+            for entry in c.true_ledger_entries.all():
+                if entry.is_debit:
+                    running_bal += float(entry.amount)
+                else:
+                    running_bal -= float(entry.amount)
+
+                c.official_ledger.append({
+                    'doc_date': entry.doc_date,
+                    'doc_no': entry.doc_no,
+                    'debit_account': entry.debit_account,
+                    'credit_account': entry.credit_account,
+                    'amount': entry.amount,
+                    'running_bal': running_bal,
+                    'is_debit': entry.is_debit
                 })
 
             # 1.5 Opening Contract Debit Lines (Valid Extras)
