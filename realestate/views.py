@@ -205,8 +205,7 @@ def owner_dashboard(request, landlord_id):
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
 
-    import itertools
-    from datetime import datetime
+
 
     TOLERANCE = 10.0
 
@@ -358,7 +357,8 @@ def owner_dashboard(request, landlord_id):
             d.ui_type = 'bounced'
             clean_ui_deposits.append(d)
 
-        elif suffix in reversed_suffixes:
+        # THE FIX: Explicitly restrict the kill list to CRT and CRVM only!
+        elif suffix in reversed_suffixes and d.doc_abbr in ['CRT', 'CRVM']:
             # Hide the original cancelled CRT from the main list so it doesn't duplicate
             continue
 

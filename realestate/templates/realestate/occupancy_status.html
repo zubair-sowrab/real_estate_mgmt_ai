@@ -253,7 +253,7 @@
                         <!-- 1. QUICK VIEW MODAL (Original) -->
                         <dialog id="ledger-{{ eu.latest_contract.id }}" class="ledger-modal">
                             <div class="dialog-header">
-                                <h3 style="margin: 0; font-size: 1.1rem; font-weight: 600;">{% if view_mode == 'strict' %}Tenant Ledger (Cleared Only){% else %}Tenant Ledger (Rent Details){% endif %}</h3>
+<h3 style="margin: 0; font-size: 1.2rem; font-weight: 300;">Tenant Ledger <span style="font-size: 0.8rem; color: #94a3b8; margin-left: 10px;">{{ eu.latest_contract.start_date|date:"d/m/Y" }} to {{ eu.latest_contract.end_date|date:"d/m/Y" }}</span></h3>
                                 <button class="close-btn" type="button" onclick="document.getElementById('ledger-{{ eu.latest_contract.id }}').close()"><i class="fa-solid fa-xmark"></i></button>
                             </div>
                             <div style="background: #f8fafc; padding: 20px; max-height: 75vh; overflow-y: auto;">
@@ -375,20 +375,26 @@
                                                 <td colspan="7" style="padding: 6px 8px;">Tenant Name : {{ eu.tenant.full_name }}</td>
                                             </tr>
                                             <!-- THE TRUE LEDGER -->
+                                            <!-- THE TRUE LEDGER -->
                                             {% for line in eu.latest_contract.official_ledger %}
                                             <tr style="border-bottom: 1px solid #f1f5f9;">
                                                 <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-weight: 500;">{{ line.doc_date|date:"d-m-Y" }}</td>
                                                 <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-weight: 600;">{{ line.doc_no }}</td>
-                                                <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-size: 0.75rem;">
-                                                    {% if line.is_debit %}{{ line.credit_account }}{% else %}{{ line.debit_account }}{% endif %}
+                                                <td style="padding: 8px; border-right: 1px solid #e2e8f0; font-size: 0.75rem; color: #475569;">
+                                                    {{ line.particular|default:"-" }}
                                                 </td>
                                                 <td style="padding: 8px; text-align: right; border-right: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;">{% if line.is_debit %}{{ line.amount|floatformat:"2g" }}{% else %}-{% endif %}</td>
                                                 <td style="padding: 8px; text-align: right; border-right: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;">{% if not line.is_debit %}{{ line.amount|floatformat:"2g" }}{% else %}-{% endif %}</td>
                                                 <td style="padding: 8px; text-align: right; border-right: 1px solid #e2e8f0; font-weight: bold; color: #1e293b;">{{ line.running_bal|floatformat:"2g" }} Dr</td>
+                                                <td style="padding: 8px; text-align: left; color: #64748b;">{{ eu.unit_number }}</td>
+                                                <td style="padding: 8px; text-align: left; color: #64748b;">{{ line.chq_no|default:"-" }}</td>
+                                                <td style="padding: 8px; text-align: left; color: #64748b;">{{ line.bank|default:"-" }}</td>
+                                                <td style="padding: 8px; text-align: left; color: #64748b;">{{ line.chq_date|date:"d/m/Y"|default:"-" }}</td>
+                                                <td style="padding: 8px; text-align: left; color: #64748b;">{{ line.tracking_no|default:"-" }}</td>
                                                 <td style="padding: 8px; text-align: left; color: #64748b;">{{ eu.latest_contract.start_date|date:"d/m/Y" }}</td>
                                             </tr>
                                             {% empty %}
-                                            <tr><td colspan="7" style="padding: 20px; text-align: center; color: #94a3b8;">No official ledger entries found for this contract.</td></tr>
+                                            <tr><td colspan="12" style="padding: 20px; text-align: center; color: #94a3b8;">No official ledger entries found for this contract.</td></tr>
                                             {% endfor %}
 
                                             <tr style="background: white; font-weight: bold; border-top: 2px solid #94a3b8; font-size: 0.95rem;">
