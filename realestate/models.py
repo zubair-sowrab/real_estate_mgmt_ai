@@ -301,6 +301,9 @@ class BankDeposit(models.Model):
     pact_status_id = models.CharField(max_length=50, blank=True, null=True)
     last_updated = models.DateTimeField(auto_now=True)
 
+    linked_property = models.ForeignKey(Property, on_delete=models.SET_NULL, null=True, blank=True)
+    linked_landlord = models.ForeignKey(Landlord, on_delete=models.SET_NULL, null=True, blank=True)
+
     def __str__(self):
         return f"{self.voucher_no} - AED {self.amount}"
 

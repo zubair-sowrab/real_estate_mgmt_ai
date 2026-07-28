@@ -191,26 +191,31 @@ def owner_dashboard(request, landlord_id):
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
     allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
+    # 1. Start with explicit database links (Dual-Owner Visibility)
+    query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
+
     if allowed_prefixes:
-        vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
-    else:
-        vouchers = BankDeposit.objects.all()
+        query |= Q(doc_prefix__in=allowed_prefixes)
+
+    # 2. 🛡️ FAILSAFE TEXT MATCHER: Catch PACT typos like "Al Huda Building" vs "Al Huda Bldg"
+    for p in Property.objects.filter(owner=landlord):
+        # Extract just the core name (e.g., "Al Huda" or "Al Mass")
+        core_name = p.name.replace('Bldg', '').replace('Building', '').replace('Tower', '').strip()
+        if core_name and len(core_name) > 3:
+            query |= Q(tower__icontains=core_name)
+            query |= Q(narration__icontains=core_name)
+
+    # 3. 🛡️ THE STRICT EXCLUSION: Block any vouchers belonging to the 01 or 03 portfolios
+    vouchers = BankDeposit.objects.filter(query).exclude(doc_prefix__in=['01', '03']).distinct()
 
     # --- AUTO-MATCHING ENGINE ---
-    # THE FIX: Explicitly REMOVED 'CRT' and 'CRVM' from this pool.
-    # BRVs are Cash Deposits, so they should ONLY hunt for CRV and CRO!
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
-
-    # CRT remains here so it still shows up correctly as a separate deposited row in the UI!
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
-
-
 
     TOLERANCE = 10.0
 
     # 1. SMART BUNDLING: Group ONLY "Cash" BRVs that share the exact same day.
-    # "Cheque" BRVs (which have a cheque_no or cheque_date) remain entirely separate.
     consolidated_deposits = []
     cash_brv_dict = {}
 
@@ -252,44 +257,21 @@ def owner_dashboard(request, landlord_id):
         if d.doc_abbr != 'BRV':
             continue
 
+        # 🛡️ YOUR LOGIC FIX: If a BRV has a cheque number/date, it NEVER hunts for Cash Receipts!
+        has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
+        has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
+
+        if has_cheque or has_date:
+            continue
+
         target = float(d.amount)
         matched = False
-
-        # --- TIER 1: CHEQUE DATE / NO. PRIORITY MATCH (RESTORED!) ---
-        if d.cheque_date or d.cheque_no:
-            # Deep search backward 45 days for explicit cheque matches
-            deep_search_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 45],
-                                      key=lambda x: (x.date, x.id), reverse=True)
-
-            for cro in deep_search_cros:
-                cro_amt = float(cro.amount)
-                if abs(cro_amt - target) <= TOLERANCE:
-                    date_match = False
-                    if d.cheque_date:
-                        try:
-                            parsed_chq_date = datetime.strptime(str(d.cheque_date).strip(), '%d/%m/%Y').date()
-                            if cro.date == parsed_chq_date:
-                                date_match = True
-                        except:
-                            pass
-
-                    chq_no_match = False
-                    if d.cheque_no and cro.cheque_no and str(d.cheque_no).strip() == str(cro.cheque_no).strip():
-                        chq_no_match = True
-
-                    if date_match or chq_no_match:
-                        d.linked_cros = [cro]
-                        unmatched_cros.remove(cro)
-                        matched = True
-                        break
-
-        if matched: continue
 
         # Filter the remaining pool for the chronological search (14 days lookback limit)
         valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 14],
                             key=lambda x: (x.date, x.id), reverse=True)
 
-        # --- TIER 2: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
+        # --- TIER 1: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
         for cro in valid_cros:
             if abs(float(cro.amount) - target) <= TOLERANCE:
                 d.linked_cros = [cro]
@@ -299,7 +281,7 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 3: CONTIGUOUS COMBINATIONS ---
+        # --- TIER 2: CONTIGUOUS COMBINATIONS ---
         for i in range(len(valid_cros)):
             current_sum = 0.0
             temp_match = []
@@ -318,7 +300,7 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 4: RANDOM COMBINATIONS ---
+        # --- TIER 3: RANDOM COMBINATIONS ---
         if valid_cros:
             recent_cros = valid_cros[:20]
             combo_found = False
@@ -334,7 +316,6 @@ def owner_dashboard(request, landlord_id):
 
     # --- Re-sort DESCENDING (Newest first) for the UI ---
     consolidated_deposits.sort(key=lambda x: x.date, reverse=True)
-
     filtered_deposits = consolidated_deposits
 
     # --- CROSS-REFERENCE CHEQUE STATUSES & UI HUNTER-KILLER ---
@@ -657,41 +638,44 @@ def owner_occupancy_status(request, landlord_id):
 
             # --- 1. THE PACT LEDGER CALCULATOR ---
             running_bal = 0.0
-            run_bal = 0.0  # THE FIX: Initialize the variable for the Quick View calculator!
+            true_total_dr = 0.0
+            true_total_cr = 0.0
+            run_bal = 0.0  # Kept for the Quick View calculator
             c.official_ledger = []
 
             for entry in c.true_ledger_entries.all():
                 if entry.is_debit:
                     running_bal += float(entry.amount)
+                    true_total_dr += float(entry.amount)
                 else:
                     running_bal -= float(entry.amount)
+                    true_total_cr += float(entry.amount)
 
                 c.official_ledger.append({
                     'doc_date': entry.doc_date,
                     'doc_no': entry.doc_no,
+                    'particular': entry.particular,
                     'debit_account': entry.debit_account,
                     'credit_account': entry.credit_account,
                     'amount': entry.amount,
                     'running_bal': running_bal,
-                    'is_debit': entry.is_debit
+                    'is_debit': entry.is_debit,
+                    'chq_no': entry.chq_no,
+                    'chq_date': entry.chq_date,
+                    'bank': entry.bank,
+                    'tracking_no': entry.tracking_no,
                 })
 
-            # 1.5 Opening Contract Debit Lines (Valid Extras)
-            for ext in c.get_parsed_extras():
-                ext_amt = float(ext['amount'])
-                if ext_amt > 0:
-                    run_bal += ext_amt
-                    c_ledger_active.append({
-                        'doc_date': c.start_date, 'doc_no': f"TCO-{c.pact_contract_id[-6:]}",
-                        'particular': f"Advance Rent {c.unit.property_asset.name}", 'debit': ext_amt, 'credit': 0.0,
-                        'balance': run_bal, 'unit_no': c.unit.unit_number, 'chq_no': '', 'bank': '', 'chq_date': '',
-                        'tracking': '2950', 'contract_start': c.start_date
-                    })
+            # Set the exact report totals for the UI footer
+            c.true_total_rent = true_total_dr
+            c.true_total_paid = true_total_cr
+            c.true_balance = running_bal
 
-            # --- THE FIX: DYNAMIC UI MATH OVERRIDE ---
+            # ---> ADD THESE 3 MISSING LINES <---
             c.ui_total_paid = 0.0
             c.ui_cleared_paid = 0.0
             c.ui_valid_collections = []
+            # -----------------------------------
 
             for col in c.rent_collections:
                 part_label = str(col.particular).strip()
@@ -1069,10 +1053,15 @@ def owner_cashflow(request, landlord_id):
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
     allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
+    # 🛡️ THE CASHFLOW FIX: Dual-Owner Visibility
+    # Show transaction if the prefix belongs to this landlord OR the physical building belongs to them
+    query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
+
     if allowed_prefixes:
-        vouchers = BankDeposit.objects.filter(doc_prefix__in=allowed_prefixes)
-    else:
-        vouchers = BankDeposit.objects.all()
+        query |= Q(doc_prefix__in=allowed_prefixes)
+
+    # Use .distinct() to prevent duplicate rows if a transaction matches multiple conditions
+    vouchers = BankDeposit.objects.filter(query).distinct()
         # --- AUTO-MATCHING ENGINE ---
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
 

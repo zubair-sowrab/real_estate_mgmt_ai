@@ -2,6 +2,7 @@
 pact_sync.py
 pact_explorer.py
 pact_database_blueprint.txt
+xray.py
 .env
 *.env
 db.sqlite3
