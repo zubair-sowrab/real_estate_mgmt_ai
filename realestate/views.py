@@ -322,12 +322,14 @@ def owner_dashboard(request, landlord_id):
     cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
     collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
 
-    # Identify all vouchers that have been reversed by a CBR to hide from UI
-    reversed_suffixes = set()
+    # 🛡️ Map the date of the bounce so we know if a CRT is a re-deposit
+    cbr_dates = {}
     for d in filtered_deposits:
         if d.doc_abbr == 'CBR':
             suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
-            reversed_suffixes.add(suffix)
+            # Store the LATEST bounce date if there are multiples
+            if suffix not in cbr_dates or d.date > cbr_dates[suffix]:
+                cbr_dates[suffix] = d.date
 
     clean_ui_deposits = []
 
@@ -338,10 +340,14 @@ def owner_dashboard(request, landlord_id):
             d.ui_type = 'bounced'
             clean_ui_deposits.append(d)
 
-        # THE FIX: Explicitly restrict the kill list to CRT and CRVM only!
-        elif suffix in reversed_suffixes and d.doc_abbr in ['CRT', 'CRVM']:
-            # Hide the original cancelled CRT from the main list so it doesn't duplicate
-            continue
+        # 🛡️ THE SMART HUNTER-KILLER: Only hides the deposit if it happened ON OR BEFORE the bounce.
+        # If the deposit is newer than the bounce, it was successfully re-presented!
+        elif suffix in cbr_dates and d.doc_abbr in ['CRT', 'CRVM']:
+            if d.date <= cbr_dates[suffix]:
+                continue
+            else:
+                d.ui_type = 'deposited'
+                clean_ui_deposits.append(d)
 
         elif str(d.pact_status_id).strip() == '429':
             d.ui_type = 'replaced'
@@ -633,23 +639,20 @@ def owner_occupancy_status(request, landlord_id):
         for c in unique_contracts:
             p_stats['total_rent'] += float(c.comprehensive_rent_amount)
 
-            c_ledger_active = []
-            c_ledger_pdc = []
-
-            # --- 1. THE PACT LEDGER CALCULATOR ---
-            running_bal = 0.0
-            true_total_dr = 0.0
-            true_total_cr = 0.0
-            run_bal = 0.0  # Kept for the Quick View calculator
             c.official_ledger = []
+            existing_cheques = set()
+            existing_irv_keys = set()  # 🛡️ THE NEW SHIELD: Tracks Date + Amount
+            ui_tracking_no = c.pact_costcenter_id
 
             for entry in c.true_ledger_entries.all():
-                if entry.is_debit:
-                    running_bal += float(entry.amount)
-                    true_total_dr += float(entry.amount)
-                else:
-                    running_bal -= float(entry.amount)
-                    true_total_cr += float(entry.amount)
+                if entry.tracking_no: ui_tracking_no = entry.tracking_no
+
+                if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
+                    existing_cheques.add(str(entry.chq_no).strip())
+
+                # 🛡️ Lock in the exact Date and Amount of every true ledger line
+                if entry.doc_date and entry.amount:
+                    existing_irv_keys.add(f"{entry.doc_date.strftime('%Y-%m-%d')}_{float(entry.amount)}")
 
                 c.official_ledger.append({
                     'doc_date': entry.doc_date,
@@ -657,8 +660,7 @@ def owner_occupancy_status(request, landlord_id):
                     'particular': entry.particular,
                     'debit_account': entry.debit_account,
                     'credit_account': entry.credit_account,
-                    'amount': entry.amount,
-                    'running_bal': running_bal,
+                    'amount': float(entry.amount),
                     'is_debit': entry.is_debit,
                     'chq_no': entry.chq_no,
                     'chq_date': entry.chq_date,
@@ -666,38 +668,24 @@ def owner_occupancy_status(request, landlord_id):
                     'tracking_no': entry.tracking_no,
                 })
 
-            # Set the exact report totals for the UI footer
-            c.true_total_rent = true_total_dr
-            c.true_total_paid = true_total_cr
-            c.true_balance = running_bal
-
-            # ---> ADD THESE 3 MISSING LINES <---
             c.ui_total_paid = 0.0
             c.ui_cleared_paid = 0.0
             c.ui_valid_collections = []
-            # -----------------------------------
 
             for col in c.rent_collections:
                 part_label = str(col.particular).strip()
-                part_lower = part_label.lower()
-
-                # IRONCLAD FAILSAFE: Kill Tasdeeq, Sewerage, and Security Deposits instantly!
-                if any(b in part_lower for b in ['tasdeeq', 'sewerage', 'security', 'deposit']):
+                if any(b in part_label.lower() for b in ['tasdeeq', 'sewerage', 'security', 'deposit']):
                     continue
-
                 if part_label == '15': part_label = "Rent"
 
-                # Keep only valid cheques for the HTML to render
                 c.ui_valid_collections.append(col)
                 amt = float(col.amount)
 
-                # UI Box Math
                 if col.status in ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']:
                     c.ui_total_paid += amt
                 if col.status in ['Cleared', 'Posted']:
                     c.ui_cleared_paid += amt
 
-                # Global Pie Chart Math
                 if col.status in ['Cleared', 'Posted']:
                     p_stats['paid'] += amt
                 elif view_mode == 'full':
@@ -708,53 +696,51 @@ def owner_occupancy_status(request, landlord_id):
                     elif col.status in ['Replaced/Partial', 'Replaced']:
                         p_stats['replaced'] += amt
 
-                # PACT Ledger Math
                 if col.status == 'Pending PDC':
-                    run_bal -= amt
-                    c_ledger_pdc.append({
-                        'doc_date': col.due_date, 'doc_no': f"PDR-{col.pact_transaction_id[-6:]}",
-                        'particular': f"PDC - {part_label}", 'debit': 0.0, 'credit': amt, 'balance': run_bal,
-                        'unit_no': c.unit.unit_number, 'chq_no': col.cheque_number or '', 'bank': col.payment_type,
-                        'chq_date': col.due_date, 'tracking': '2950', 'contract_start': c.start_date
-                    })
-                else:
-                    run_bal -= amt
-                    prefix = "CRV" if col.cheque_number else "RV"
-                    c_ledger_active.append({
-                        'doc_date': col.due_date, 'doc_no': f"{prefix}-{col.pact_transaction_id[-6:]}",
-                        'particular': part_label, 'debit': 0.0, 'credit': amt, 'balance': run_bal,
-                        'unit_no': c.unit.unit_number, 'chq_no': col.cheque_number or 'CASH', 'bank': col.payment_type,
-                        'chq_date': col.due_date, 'tracking': '2950', 'contract_start': c.start_date
-                    })
+                    # 🛡️ THE BULLETPROOF SHIELD: Blocks duplicates even if Cheque No is misspelled!
+                    chq_key = f"{col.due_date.strftime('%Y-%m-%d')}_{amt}" if col.due_date else ""
 
-                    if col.status in ['Bounced', 'Replaced', 'Replaced/Partial', 'Terminated PDC']:
-                        run_bal += amt
-                        c_ledger_active.append({
-                            'doc_date': col.due_date, 'doc_no': f"CBR-{col.pact_transaction_id[-6:]}",
-                            'particular': f"Reversal ({col.status})", 'debit': amt, 'credit': 0.0, 'balance': run_bal,
-                            'unit_no': c.unit.unit_number, 'chq_no': col.cheque_number or 'CASH',
-                            'bank': col.payment_type, 'chq_date': col.due_date, 'tracking': '2950',
-                            'contract_start': c.start_date
+                    if col.cheque_number and str(col.cheque_number).strip() in existing_cheques:
+                        pass
+                    elif chq_key and chq_key in existing_irv_keys:
+                        pass
+                    else:
+                        c.official_ledger.append({
+                            'doc_date': col.due_date,
+                            'doc_no': f"PDR (Pending)",
+                            'particular': 'PDC Receivable',
+                            'debit_account': '',
+                            'credit_account': '',
+                            'amount': amt,
+                            'is_debit': False,
+                            'chq_no': col.cheque_number,
+                            'chq_date': col.due_date,
+                            'bank': '',
+                            'tracking_no': ui_tracking_no,
                         })
 
-            c.generated_ledger_active = c_ledger_active
-            c.generated_ledger_pdc = c_ledger_pdc
-            c.active_debit = sum(l['debit'] for l in c_ledger_active)
-            c.active_credit = sum(l['credit'] for l in c_ledger_active)
-            c.active_bal = c.active_debit - c.active_credit
-            c.pdc_debit = sum(l['debit'] for l in c_ledger_pdc)
-            c.pdc_credit = sum(l['credit'] for l in c_ledger_pdc)
-            c.ledger_total_debit = c.active_debit + c.pdc_debit
-            c.ledger_total_credit = c.active_credit + c.pdc_credit
-            c.ledger_final_balance = run_bal
+            c.official_ledger.sort(key=lambda x: x['doc_date'])
 
-            # Final UI Balance Math
+            running_bal = 0.0
+            true_total_dr = 0.0
+            true_total_cr = 0.0
+
+            for item in c.official_ledger:
+                if item['is_debit']:
+                    running_bal += item['amount']
+                    true_total_dr += item['amount']
+                else:
+                    running_bal -= item['amount']
+                    true_total_cr += item['amount']
+                item['running_bal'] = running_bal
+
+            c.true_total_rent = true_total_dr
+            c.true_total_paid = true_total_cr
+            c.true_balance = running_bal
+
             comp_rent = float(c.comprehensive_rent_amount)
-            c.ui_remaining_balance = comp_rent - c.ui_total_paid
-            if c.ui_remaining_balance < 0: c.ui_remaining_balance = 0
-
-            c.ui_strict_balance = comp_rent - c.ui_cleared_paid
-            if c.ui_strict_balance < 0: c.ui_strict_balance = 0
+            c.ui_remaining_balance = max(0, comp_rent - c.ui_total_paid)
+            c.ui_strict_balance = max(0, comp_rent - c.ui_cleared_paid)
 
 
         if view_mode == 'strict':
