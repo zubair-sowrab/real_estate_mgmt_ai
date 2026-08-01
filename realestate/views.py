@@ -191,31 +191,25 @@ def owner_dashboard(request, landlord_id):
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
     allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-    # 1. Start with explicit database links (Dual-Owner Visibility)
     query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
 
     if allowed_prefixes:
         query |= Q(doc_prefix__in=allowed_prefixes)
 
-    # 2. 🛡️ FAILSAFE TEXT MATCHER: Catch PACT typos like "Al Huda Building" vs "Al Huda Bldg"
     for p in Property.objects.filter(owner=landlord):
-        # Extract just the core name (e.g., "Al Huda" or "Al Mass")
         core_name = p.name.replace('Bldg', '').replace('Building', '').replace('Tower', '').strip()
         if core_name and len(core_name) > 3:
             query |= Q(tower__icontains=core_name)
             query |= Q(narration__icontains=core_name)
 
-    # 3. 🛡️ THE STRICT EXCLUSION: Block any vouchers belonging to the 01 or 03 portfolios
     vouchers = BankDeposit.objects.filter(query).exclude(doc_prefix__in=['01', '03']).distinct()
 
-    # --- AUTO-MATCHING ENGINE ---
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
 
     TOLERANCE = 10.0
 
-    # 1. SMART BUNDLING: Group ONLY "Cash" BRVs that share the exact same day.
     consolidated_deposits = []
     cash_brv_dict = {}
 
@@ -225,7 +219,7 @@ def owner_dashboard(request, landlord_id):
             has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
 
             if has_cheque or has_date:
-                consolidated_deposits.append(d)  # Keep Cheque BRVs isolated
+                consolidated_deposits.append(d)
             else:
                 if d.date not in cash_brv_dict:
                     cash_brv_dict[d.date] = []
@@ -233,7 +227,6 @@ def owner_dashboard(request, landlord_id):
         else:
             consolidated_deposits.append(d)
 
-    # Merge the Cash BRVs on the same day
     for dt, brvs in cash_brv_dict.items():
         if len(brvs) == 1:
             consolidated_deposits.append(brvs[0])
@@ -249,7 +242,6 @@ def owner_dashboard(request, landlord_id):
             primary.amount = sum(float(b.amount) for b in brvs)
             consolidated_deposits.append(primary)
 
-    # Sort ASCENDING (Oldest first) for FIFO chronological matching
     consolidated_deposits.sort(key=lambda x: x.date)
 
     for d in consolidated_deposits:
@@ -257,7 +249,6 @@ def owner_dashboard(request, landlord_id):
         if d.doc_abbr != 'BRV':
             continue
 
-        # 🛡️ YOUR LOGIC FIX: If a BRV has a cheque number/date, it NEVER hunts for Cash Receipts!
         has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
         has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
 
@@ -267,11 +258,9 @@ def owner_dashboard(request, landlord_id):
         target = float(d.amount)
         matched = False
 
-        # Filter the remaining pool for the chronological search (14 days lookback limit)
         valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 14],
                             key=lambda x: (x.date, x.id), reverse=True)
 
-        # --- TIER 1: SINGLE VOUCHER MATCH (WITH TOLERANCE) ---
         for cro in valid_cros:
             if abs(float(cro.amount) - target) <= TOLERANCE:
                 d.linked_cros = [cro]
@@ -281,7 +270,6 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 2: CONTIGUOUS COMBINATIONS ---
         for i in range(len(valid_cros)):
             current_sum = 0.0
             temp_match = []
@@ -300,7 +288,6 @@ def owner_dashboard(request, landlord_id):
 
         if matched: continue
 
-        # --- TIER 3: RANDOM COMBINATIONS ---
         if valid_cros:
             recent_cros = valid_cros[:20]
             combo_found = False
@@ -314,20 +301,16 @@ def owner_dashboard(request, landlord_id):
                         break
                 if combo_found: break
 
-    # --- Re-sort DESCENDING (Newest first) for the UI ---
     consolidated_deposits.sort(key=lambda x: x.date, reverse=True)
     filtered_deposits = consolidated_deposits
 
-    # --- CROSS-REFERENCE CHEQUE STATUSES & UI HUNTER-KILLER ---
     cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
     collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
 
-    # 🛡️ Map the date of the bounce so we know if a CRT is a re-deposit
     cbr_dates = {}
     for d in filtered_deposits:
         if d.doc_abbr == 'CBR':
             suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
-            # Store the LATEST bounce date if there are multiples
             if suffix not in cbr_dates or d.date > cbr_dates[suffix]:
                 cbr_dates[suffix] = d.date
 
@@ -340,8 +323,6 @@ def owner_dashboard(request, landlord_id):
             d.ui_type = 'bounced'
             clean_ui_deposits.append(d)
 
-        # 🛡️ THE SMART HUNTER-KILLER: Only hides the deposit if it happened ON OR BEFORE the bounce.
-        # If the deposit is newer than the bounce, it was successfully re-presented!
         elif suffix in cbr_dates and d.doc_abbr in ['CRT', 'CRVM']:
             if d.date <= cbr_dates[suffix]:
                 continue
@@ -357,7 +338,6 @@ def owner_dashboard(request, landlord_id):
             d.ui_type = 'deposited'
             clean_ui_deposits.append(d)
 
-    # --- APPLY UI FILTERS & DYNAMIC MATH ---
     final_ui_list = []
     total_in_bank = 0.0
     total_bounced = 0.0
@@ -390,7 +370,6 @@ def owner_dashboard(request, landlord_id):
 
         if keep:
             final_ui_list.append(d)
-            # Add to totals ONLY if the row passes the date/search filter!
             if d.ui_type == 'bounced':
                 total_bounced += float(d.amount)
             elif d.ui_type == 'replaced':
@@ -408,6 +387,7 @@ def owner_dashboard(request, landlord_id):
         'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }
     return render(request, 'realestate/cashflow.html', context)
+
 
 @login_required(login_url='/login/')
 def owner_properties(request, landlord_id):
@@ -618,6 +598,13 @@ def owner_occupancy_status(request, landlord_id):
 
     view_mode = request.GET.get('mode', 'full')
 
+    # 🛡️ THE COMPANY SHIELD (Part 1): Map the landlord to their specific PACT Company Code
+    pact_ll_id = str(landlord.pact_landlord_id).strip()
+    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+    allowed_prefixes = prefix_map.get(pact_ll_id, [])
+    if '02' not in allowed_prefixes:
+        allowed_prefixes.append('02')  # 🛡️ Always allow '02' as requested
+
     properties = Property.objects.filter(owner=landlord).prefetch_related(
         Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections',
                                                                  'contracts__true_ledger_entries'))
@@ -641,16 +628,26 @@ def owner_occupancy_status(request, landlord_id):
 
             c.official_ledger = []
             existing_cheques = set()
-            existing_irv_keys = set()  # 🛡️ THE NEW SHIELD: Tracks Date + Amount
+            existing_irv_keys = set()
             ui_tracking_no = c.pact_costcenter_id
 
             for entry in c.true_ledger_entries.all():
+
+                # 🛡️ THE COMPANY SHIELD (Part 2): Vaporizes any voucher (like 01) that isn't their code or 02!
+                if allowed_prefixes and entry.doc_no and '-' in entry.doc_no and '/' in entry.doc_no:
+                    comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
+                    if comp_code.isdigit() and len(comp_code) == 2 and comp_code not in allowed_prefixes:
+                        continue
                 if entry.tracking_no: ui_tracking_no = entry.tracking_no
 
                 if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
                     existing_cheques.add(str(entry.chq_no).strip())
 
-                # 🛡️ Lock in the exact Date and Amount of every true ledger line
+                if not entry.is_debit and c.end_date:
+                    if float(entry.amount) >= (float(c.comprehensive_rent_amount) * 0.45):
+                        if entry.doc_date >= (c.end_date - timedelta(days=60)):
+                            continue
+
                 if entry.doc_date and entry.amount:
                     existing_irv_keys.add(f"{entry.doc_date.strftime('%Y-%m-%d')}_{float(entry.amount)}")
 
@@ -674,12 +671,24 @@ def owner_occupancy_status(request, landlord_id):
 
             for col in c.rent_collections:
                 part_label = str(col.particular).strip()
-                if any(b in part_label.lower() for b in ['tasdeeq', 'sewerage', 'security', 'deposit']):
+                if any(b in part_label.lower() for b in ['tasdeeq', 'sewerage', 'security']):
                     continue
                 if part_label == '15': part_label = "Rent"
 
                 c.ui_valid_collections.append(col)
                 amt = float(col.amount)
+
+                # 🛡️ THE COLLISION SHIELD: Protects future PDCs from falsely clearing due to cross-tenant generic cheque number collisions!
+                chq_key = f"{col.due_date.strftime('%Y-%m-%d')}_{amt}" if col.due_date else ""
+                is_in_ledger = False
+
+                if col.cheque_number and str(col.cheque_number).strip() in existing_cheques:
+                    is_in_ledger = True
+                elif chq_key and chq_key in existing_irv_keys:
+                    is_in_ledger = True
+
+                if not is_in_ledger and col.due_date and col.due_date > timezone.now().date():
+                    col.status = 'Pending PDC'
 
                 if col.status in ['Cleared', 'Posted', 'Pending PDC', 'Replaced/Partial', 'Replaced']:
                     c.ui_total_paid += amt
@@ -696,28 +705,22 @@ def owner_occupancy_status(request, landlord_id):
                     elif col.status in ['Replaced/Partial', 'Replaced']:
                         p_stats['replaced'] += amt
 
-                if col.status == 'Pending PDC':
-                    # 🛡️ THE BULLETPROOF SHIELD: Blocks duplicates even if Cheque No is misspelled!
-                    chq_key = f"{col.due_date.strftime('%Y-%m-%d')}_{amt}" if col.due_date else ""
-
-                    if col.cheque_number and str(col.cheque_number).strip() in existing_cheques:
-                        pass
-                    elif chq_key and chq_key in existing_irv_keys:
-                        pass
-                    else:
-                        c.official_ledger.append({
-                            'doc_date': col.due_date,
-                            'doc_no': f"PDR (Pending)",
-                            'particular': 'PDC Receivable',
-                            'debit_account': '',
-                            'credit_account': '',
-                            'amount': amt,
-                            'is_debit': False,
-                            'chq_no': col.cheque_number,
-                            'chq_date': col.due_date,
-                            'bank': '',
-                            'tracking_no': ui_tracking_no,
-                        })
+                    # 🛡️ THE PDC INJECTION: Safely injects the true Pending PDCs back into the view without double-counting!
+                    if col.status == 'Pending PDC':
+                        if not is_in_ledger:
+                            c.official_ledger.append({
+                                'doc_date': col.due_date,
+                                'doc_no': f"PDR (Pending)",
+                                'particular': 'PDC Receivable',
+                                'debit_account': '',
+                                'credit_account': '',
+                                'amount': amt,
+                                'is_debit': False,
+                                'chq_no': col.cheque_number,
+                                'chq_date': col.due_date,
+                                'bank': '',
+                                'tracking_no': ui_tracking_no,
+                            })
 
             c.official_ledger.sort(key=lambda x: x['doc_date'])
 
@@ -726,13 +729,17 @@ def owner_occupancy_status(request, landlord_id):
             true_total_cr = 0.0
 
             for item in c.official_ledger:
-                if item['is_debit']:
+                # 🛡️ THE UNREALIZED ASSET FIX: PDRs show in the ledger but do NOT drop the active balance!
+                if 'PDR' in str(item['doc_no']).upper():
+                    item['running_bal'] = running_bal
+                elif item['is_debit']:
                     running_bal += item['amount']
                     true_total_dr += item['amount']
+                    item['running_bal'] = running_bal
                 else:
                     running_bal -= item['amount']
                     true_total_cr += item['amount']
-                item['running_bal'] = running_bal
+                    item['running_bal'] = running_bal
 
             c.true_total_rent = true_total_dr
             c.true_total_paid = true_total_cr
@@ -741,7 +748,6 @@ def owner_occupancy_status(request, landlord_id):
             comp_rent = float(c.comprehensive_rent_amount)
             c.ui_remaining_balance = max(0, comp_rent - c.ui_total_paid)
             c.ui_strict_balance = max(0, comp_rent - c.ui_cleared_paid)
-
 
         if view_mode == 'strict':
             calc_balance = p_stats['total_rent'] - p_stats['paid']
@@ -776,7 +782,6 @@ def owner_occupancy_status(request, landlord_id):
         'landlord': landlord, 'property_data': property_data, 'global_stats': global_stats,
         'global_stats_json': json.dumps(global_stats), 'view_mode': view_mode, 'today': timezone.now().date()
     })
-
 
 @login_required(login_url='/login/')
 def owner_reports(request, landlord_id):
@@ -1035,126 +1040,102 @@ def owner_cashflow(request, landlord_id):
         date_from_bank = "2025-12-31"
         date_to_bank = today.strftime("%Y-%m-%d")
 
-    pact_ll_id = str(landlord.pact_landlord_id).strip()
-    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
-    allowed_prefixes = prefix_map.get(pact_ll_id, [])
+        # 🛡️ THE COMPANY SHIELD (Part 1): Map the landlord to their specific PACT Company Code
+        pact_ll_id = str(landlord.pact_landlord_id).strip()
+        prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+        allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-    # 🛡️ THE CASHFLOW FIX: Dual-Owner Visibility
-    # Show transaction if the prefix belongs to this landlord OR the physical building belongs to them
+        # Safely append '02' only if the landlord actually uses a strict company code
+        if allowed_prefixes and '02' not in allowed_prefixes:
+            allowed_prefixes.append('02')
+
     query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
 
     if allowed_prefixes:
         query |= Q(doc_prefix__in=allowed_prefixes)
 
-    # Use .distinct() to prevent duplicate rows if a transaction matches multiple conditions
     vouchers = BankDeposit.objects.filter(query).distinct()
-        # --- AUTO-MATCHING ENGINE ---
-    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
-
-        # THE FIX: Added 'CBR' to the query so Bounced Receipts actually load!
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
-    unmatched_cros = all_cros.copy()
-    import itertools
-    from datetime import datetime
 
-    TOLERANCE = 6.0
-
-    for d in all_deposits:
-        d.linked_cros = []
-        if d.doc_abbr != 'BRV':
-            continue
-
-        target = float(d.amount)
-        valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date], key=lambda x: (x.date, x.id),
-                                reverse=True)
-        matched = False
-
-        for cro in valid_cros:
-            if abs(float(cro.amount) - target) < 0.05:
-                d.linked_cros = [cro]
-                unmatched_cros.remove(cro)
-                matched = True
-                break
-
-        if not matched:
-            for i in range(len(valid_cros)):
-                current_sum = 0.0
-                temp_match = []
-                for j in range(i, len(valid_cros)):
-                    current_sum += float(valid_cros[j].amount)
-                    temp_match.append(valid_cros[j])
-                    if abs(current_sum - target) <= TOLERANCE:
-                        d.linked_cros = sorted(temp_match, key=lambda x: x.date)
-                        for m in temp_match:
-                            unmatched_cros.remove(m)
-                        matched = True
-                        break
-                    elif current_sum > target + TOLERANCE:
-                        break
-                if matched: break
-
-        if not matched and valid_cros:
-            recent_cros = valid_cros[:50]
-            combo_found = False
-            for r in range(2, min(7, len(recent_cros) + 1)):
-                for combo in itertools.combinations(recent_cros, r):
-                    if abs(sum(float(c.amount) for c in combo) - target) < 0.05:
-                        d.linked_cros = sorted(list(combo), key=lambda x: x.date)
-                        for m in combo:
-                            unmatched_cros.remove(m)
-                        combo_found = True
-                        break
-                if combo_found: break
-
-        # --- APPLY UI FILTERS TO RESULTS ---
     filtered_deposits = all_deposits
-
-    if date_from_bank:
-        d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
-        filtered_deposits = [b for b in filtered_deposits if b.date >= d_from]
-    if date_to_bank:
-        d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
-        filtered_deposits = [b for b in filtered_deposits if b.date <= d_to]
-
-    if search_query:
-        sq = search_query.lower()
-        filtered_deposits = [
-            b for b in filtered_deposits
-            if (b.narration and sq in b.narration.lower())
-                or (b.voucher_no and sq in b.voucher_no.lower())
-                or (b.tenant and sq in b.tenant.lower())
-                or (b.cheque_no and sq in b.cheque_no.lower())
-        ]
-
     filtered_deposits.sort(key=lambda x: x.date, reverse=True)
-        # --- THE FIX: CROSS-REFERENCE CHEQUE STATUSES ---
+
     cheque_numbers = [d.cheque_no for d in filtered_deposits if d.cheque_no and str(d.cheque_no).strip()]
     collections = Collection.objects.filter(cheque_number__in=cheque_numbers)
-    cheque_status_map = {str(c.cheque_number).strip(): c.status for c in collections if c.cheque_number}
 
+    cbr_dates = {}
+    for d in filtered_deposits:
+        if d.doc_abbr == 'CBR':
+            suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
+            if suffix not in cbr_dates or d.date > cbr_dates[suffix]:
+                cbr_dates[suffix] = d.date
+
+    clean_ui_deposits = []
+
+    for d in filtered_deposits:
+        suffix = d.voucher_no.split('-', 1)[-1] if '-' in d.voucher_no else d.voucher_no
+
+        if d.doc_abbr == 'CBR':
+            d.ui_type = 'bounced'
+            clean_ui_deposits.append(d)
+
+        elif suffix in cbr_dates and d.doc_abbr in ['CRT', 'CRVM']:
+            if d.date <= cbr_dates[suffix]:
+                continue
+            else:
+                d.ui_type = 'deposited'
+                clean_ui_deposits.append(d)
+
+        elif str(d.pact_status_id).strip() == '429':
+            d.ui_type = 'replaced'
+            clean_ui_deposits.append(d)
+
+        else:
+            d.ui_type = 'deposited'
+            clean_ui_deposits.append(d)
+
+    final_ui_list = []
     total_in_bank = 0.0
     total_bounced = 0.0
     total_replaced = 0.0
 
-    for d in filtered_deposits:
-        # A CBR voucher is specifically a Cheque Bounced Receipt
-        if d.doc_abbr == 'CBR':
-            d.ui_type = 'bounced'
-            total_bounced += float(d.amount)
+    for d in clean_ui_deposits:
+        keep = True
 
-        # If it's NOT a CBR, but PACT flagged it with 429, it was Replaced
-        elif str(d.pact_status_id).strip() == '429':
-            d.ui_type = 'replaced'
-            total_replaced += float(d.amount)
+        if date_from_bank:
+            try:
+                d_from = datetime.strptime(date_from_bank, "%Y-%m-%d").date()
+                if d.date < d_from: keep = False
+            except:
+                pass
 
-        # Everything else successfully cleared into the bank
-        else:
-            d.ui_type = 'deposited'
-            total_in_bank += float(d.amount)
+        if date_to_bank:
+            try:
+                d_to = datetime.strptime(date_to_bank, "%Y-%m-%d").date()
+                if d.date > d_to: keep = False
+            except:
+                pass
+
+        if search_query:
+            sq = search_query.lower()
+            if not ((d.narration and sq in d.narration.lower())
+                    or (d.voucher_no and sq in d.voucher_no.lower())
+                    or (d.tenant and sq in d.tenant.lower())
+                    or (d.cheque_no and sq in d.cheque_no.lower())):
+                keep = False
+
+        if keep:
+            final_ui_list.append(d)
+            if d.ui_type == 'bounced':
+                total_bounced += float(d.amount)
+            elif d.ui_type == 'replaced':
+                total_replaced += float(d.amount)
+            elif d.ui_type == 'deposited':
+                total_in_bank += float(d.amount)
 
     context = {
         'landlord': landlord,
-        'in_bank_vouchers': filtered_deposits,
+        'in_bank_vouchers': final_ui_list,
         'total_in_bank': total_in_bank,
         'total_bounced': total_bounced,
         'total_replaced': total_replaced,
