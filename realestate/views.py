@@ -187,22 +187,38 @@ def owner_dashboard(request, landlord_id):
         date_from_bank = "2025-12-31"
         date_to_bank = today.strftime("%Y-%m-%d")
 
+    # --- THE BULLETPROOF COMPANY & BUILDING SHIELD ---
     pact_ll_id = str(landlord.pact_landlord_id).strip()
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
-    allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-    query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
+    # 1. Identify their explicit primary prefix (e.g., '08' for Landlord 16)
+    primary_prefixes = prefix_map.get(pact_ll_id, [])
 
-    if allowed_prefixes:
-        query |= Q(doc_prefix__in=allowed_prefixes)
+    # 2. Create the allowed list which includes the global '02'
+    allowed_prefixes = list(primary_prefixes)
+    if '02' not in allowed_prefixes:
+        allowed_prefixes.append('02')
 
+    # 3. RULE 1: Allow ALL documents from their Primary Prefix (Rescues BRVs implicitly!)
+    if primary_prefixes:
+        final_query = Q(doc_prefix__in=primary_prefixes)
+    else:
+        final_query = Q(pk__in=[])
+
+    # 4. RULE 2: For shared documents (like '02'), they MUST explicitly match a building OWNED by this landlord!
+    # (We completely ignore the unreliable Landlord ID dropdown here)
+    building_query = Q(linked_property__owner=landlord)
     for p in Property.objects.filter(owner=landlord):
         core_name = p.name.replace('Bldg', '').replace('Building', '').replace('Tower', '').strip()
         if core_name and len(core_name) > 3:
-            query |= Q(tower__icontains=core_name)
-            query |= Q(narration__icontains=core_name)
+            building_query |= Q(tower__icontains=core_name)
+            building_query |= Q(narration__icontains=core_name)
 
-    vouchers = BankDeposit.objects.filter(query).exclude(doc_prefix__in=['01', '03']).distinct()
+    # 5. Apply Rule 2 strictly: A building match is ONLY valid if the prefix is allowed (Stops '06' from sneaking in!)
+    final_query |= (building_query & Q(doc_prefix__in=allowed_prefixes))
+
+    # 6. Execute Final Filter
+    vouchers = BankDeposit.objects.filter(final_query).exclude(doc_prefix__in=['01', '03']).distinct()
 
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
@@ -1049,10 +1065,12 @@ def owner_cashflow(request, landlord_id):
         if allowed_prefixes and '02' not in allowed_prefixes:
             allowed_prefixes.append('02')
 
-    query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
+        # Base query: Must be linked to this landlord or their property
+        query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
 
-    if allowed_prefixes:
-        query |= Q(doc_prefix__in=allowed_prefixes)
+        # 🛡️ THE STRICT SHIELD: Must ALSO match the allowed prefixes!
+        if allowed_prefixes:
+            query &= Q(doc_prefix__in=allowed_prefixes)
 
     vouchers = BankDeposit.objects.filter(query).distinct()
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
