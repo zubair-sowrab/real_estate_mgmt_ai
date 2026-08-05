@@ -809,6 +809,7 @@ def owner_occupancy_status(request, landlord_id):
         'global_stats_json': json.dumps(global_stats), 'view_mode': view_mode, 'today': timezone.now().date()
     })
 
+
 @login_required(login_url='/login/')
 def owner_reports(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
