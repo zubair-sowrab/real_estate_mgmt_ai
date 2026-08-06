@@ -652,14 +652,12 @@ def owner_occupancy_status(request, landlord_id):
             existing_irv_keys = set()
 
             # 🚀 DYNAMIC BULK-RECEIPT SHIELD
-            # Prevents Bulk BRVs with shared cheque numbers from dumping other tenants' money into this ledger.
             raw_entries = list(c.true_ledger_entries.all())
             rogue_entries = set()
             brv_tracker = {}
 
             for entry in raw_entries:
                 if entry.doc_abbr in ['BRV', 'CRV', 'CRO']:
-                    # Group by Voucher No and Cheque No to find cross-wired duplicates
                     key = f"{entry.doc_no}_{str(entry.chq_no).strip()}"
                     if key not in brv_tracker:
                         brv_tracker[key] = []
@@ -667,7 +665,6 @@ def owner_occupancy_status(request, landlord_id):
 
             for key, entries in brv_tracker.items():
                 if len(entries) > 1:
-                    # Keep the largest amount (the true tenant payment) and drop the smaller rogue lines
                     entries.sort(key=lambda x: float(x.amount), reverse=True)
                     for rogue in entries[1:]:
                         rogue_entries.add(rogue.id)
