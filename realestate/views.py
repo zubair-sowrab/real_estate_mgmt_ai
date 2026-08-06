@@ -1089,13 +1089,17 @@ def owner_cashflow(request, landlord_id):
         date_to_bank = today.strftime("%Y-%m-%d")
 
         # 🛡️ THE COMPANY SHIELD (Part 1): Map the landlord to their specific PACT Company Code
+        # 🛡️ THE COMPANY SHIELD
         pact_ll_id = str(landlord.pact_landlord_id).strip()
         prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
         allowed_prefixes = prefix_map.get(pact_ll_id, [])
 
-        # Safely append '02' only if the landlord actually uses a strict company code
-        if allowed_prefixes and '02' not in allowed_prefixes:
+        if '02' not in allowed_prefixes:
             allowed_prefixes.append('02')
+
+        # 🚀 UNHIDE THE 01 VAT RECEIPTS
+        if '01' not in allowed_prefixes:
+            allowed_prefixes.append('01')
 
         # Base query: Must be linked to this landlord or their property
         query = Q(linked_landlord=landlord) | Q(linked_property__owner=landlord)
