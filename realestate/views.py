@@ -199,7 +199,9 @@ def owner_dashboard(request, landlord_id):
     if '02' not in allowed_prefixes:
         allowed_prefixes.append('02')
 
-
+    # 🚀 FIX: Unhide VAT Receipts globally for the ledger view[cite: 4]
+    if '01' not in allowed_prefixes:
+        allowed_prefixes.append('01')
 
     # 3. RULE 1: Allow ALL documents from their Primary Prefix (Rescues BRVs implicitly!)
     if primary_prefixes:
