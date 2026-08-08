@@ -646,10 +646,8 @@ def owner_occupancy_status(request, landlord_id):
         for c in unique_contracts:
             ui_tracking_no = c.pact_costcenter_id
 
-            # 🚀 MATHEMATICAL RENT ADJUSTER (Tasdeeq Only)
+            # 🚀 Clean, dynamic rent assignment. No hardcoded SNOs or names!
             adjusted_rent = float(c.comprehensive_rent_amount)
-            if ui_tracking_no == '2729' or (c.tenant and 'mahesh' in c.tenant.full_name.lower()):
-                adjusted_rent -= 445.0
 
             c.official_ledger = []
             existing_cheques = set()
@@ -686,9 +684,6 @@ def owner_occupancy_status(request, landlord_id):
                 part_lower = str(entry.particular).lower()
                 amt = float(entry.amount)
 
-                if amt == 445.0 or ('tasdeeq' in part_lower and amt == 445.0):
-                    continue
-
                 if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
                     existing_cheques.add(str(entry.chq_no).strip())
 
@@ -719,7 +714,8 @@ def owner_occupancy_status(request, landlord_id):
                 part_label = str(col.particular).strip()
                 amt = float(col.amount)
 
-                if amt == 445.0 or ('tasdeeq' in part_label.lower() and amt == 445.0):
+                # 🚀 DYNAMIC PDC CATEGORY SHIELD: Ignores non-rent PDCs by category name, not numbers!
+                if part_label.lower() in ['tasdeeq', 'sewerage', 'security deposit']:
                     continue
 
                 if part_label == '15': part_label = "Rent"
