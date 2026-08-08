@@ -686,7 +686,7 @@ def owner_occupancy_status(request, landlord_id):
                 part_lower = str(entry.particular).lower()
                 amt = float(entry.amount)
 
-                if amt == 445.0 or 'tasdeeq' in part_lower:
+                if amt == 445.0 or ('tasdeeq' in part_lower and amt == 445.0):
                     continue
 
                 if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
@@ -719,7 +719,7 @@ def owner_occupancy_status(request, landlord_id):
                 part_label = str(col.particular).strip()
                 amt = float(col.amount)
 
-                if amt == 445.0 or 'tasdeeq' in part_label.lower():
+                if amt == 445.0 or ('tasdeeq' in part_label.lower() and amt == 445.0):
                     continue
 
                 if part_label == '15': part_label = "Rent"
