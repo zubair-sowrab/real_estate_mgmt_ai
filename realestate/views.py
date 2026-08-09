@@ -653,32 +653,19 @@ def owner_occupancy_status(request, landlord_id):
             existing_cheques = set()
             existing_irv_keys = set()
 
-            # 🚀 DYNAMIC BULK-RECEIPT SHIELD
+            # 🚀 1. ROGUE ENTRY SHIELD DELETED! (Aroos Fix)
+            # pact_sync.py guarantees foreign-key accuracy now.
+            # We must allow split BRVs to render!
             raw_entries = list(c.true_ledger_entries.all())
-            rogue_entries = set()
-            brv_tracker = {}
 
             for entry in raw_entries:
-                if entry.doc_abbr in ['BRV', 'CRV', 'CRO']:
-                    key = f"{entry.doc_no}_{str(entry.chq_no).strip()}"
-                    if key not in brv_tracker:
-                        brv_tracker[key] = []
-                    brv_tracker[key].append(entry)
 
-            for key, entries in brv_tracker.items():
-                if len(entries) > 1:
-                    entries.sort(key=lambda x: float(x.amount), reverse=True)
-                    for rogue in entries[1:]:
-                        rogue_entries.add(rogue.id)
-
-            for entry in raw_entries:
-                if entry.id in rogue_entries:
-                    continue
-
+                # 🛡️ THE COMPANY SHIELD (Keeps Rukeya Safe from 01 Agency Fees)
                 if allowed_prefixes and entry.doc_no and '-' in entry.doc_no and '/' in entry.doc_no:
                     comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
                     if comp_code.isdigit() and len(comp_code) == 2 and comp_code not in allowed_prefixes:
                         continue
+
                 if entry.tracking_no: ui_tracking_no = entry.tracking_no
 
                 part_lower = str(entry.particular).lower()
@@ -687,7 +674,10 @@ def owner_occupancy_status(request, landlord_id):
                 if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
                     existing_cheques.add(str(entry.chq_no).strip())
 
-                if entry.doc_date and entry.amount:
+                # 🚀 2. MEERA'S PDC MATCHER: Must use Cheque Date, not Entry Date!
+                if entry.chq_date and entry.amount:
+                    existing_irv_keys.add(f"{entry.chq_date.strftime('%Y-%m-%d')}_{amt}")
+                elif entry.doc_date and entry.amount:
                     existing_irv_keys.add(f"{entry.doc_date.strftime('%Y-%m-%d')}_{amt}")
 
                 c.official_ledger.append({
