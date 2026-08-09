@@ -16,7 +16,7 @@ import csv
 from django.http import HttpResponse
 
 from .models import Landlord, Property, Unit, Contract, Collection, Tenant, DocumentFolder, DocumentFile, \
-    ApprovalDocument, PropertyDocument, SyncLog, BankDeposit
+    ApprovalDocument, PropertyDocument, SyncLog, BankDeposit, ContractLedger
 
 hidden_accounts = ['Landlord (ID: 1)', 'YBN General Portfolio', 'Accounts', 'Output VAT on Sale']
 
@@ -654,7 +654,19 @@ def owner_occupancy_status(request, landlord_id):
             existing_irv_keys = set()
 
             # 🚀 DYNAMIC BULK-RECEIPT SHIELD
-            raw_entries = list(c.true_ledger_entries.all())
+            # 🚀 THE SHATTERED LEASE FIX
+            # If the accountant duplicated the SNO across multiple child units (Meera/Aroos),
+            # this pulls the receipts from ALL of them and merges them into one unified UI view!
+            if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None']:
+                raw_entries = list(ContractLedger.objects.filter(
+                    contract__pact_costcenter_id=ui_tracking_no,
+                    contract__tenant=c.tenant
+                ))
+            else:
+                raw_entries = list(c.true_ledger_entries.all())
+
+            rogue_entries = set()
+            brv_tracker = {}
             rogue_entries = set()
             brv_tracker = {}
 
