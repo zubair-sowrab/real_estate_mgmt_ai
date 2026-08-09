@@ -687,7 +687,10 @@ def owner_occupancy_status(request, landlord_id):
                 if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
                     existing_cheques.add(str(entry.chq_no).strip())
 
-                if entry.doc_date and entry.amount:
+                    # 🚀 MEERA'S PDC MATCHER FIX: Uses Cheque Date to perfectly clear PDCs!
+                if entry.chq_date and entry.amount:
+                    existing_irv_keys.add(f"{entry.chq_date.strftime('%Y-%m-%d')}_{amt}")
+                elif entry.doc_date and entry.amount:
                     existing_irv_keys.add(f"{entry.doc_date.strftime('%Y-%m-%d')}_{amt}")
 
                 c.official_ledger.append({
