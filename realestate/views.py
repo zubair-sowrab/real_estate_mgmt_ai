@@ -636,8 +636,36 @@ def owner_occupancy_status(request, landlord_id):
     for p in properties:
         exp_units, t_count, _, _ = get_property_expanded_stats(p)
 
+        # 🚀 1. THE SHATTERED LEASE UI DEDUPLICATOR
+        # Groups contracts by SNO. If Meera has 6 cards sharing the same lease,
+        # it finds the Master Unit (longest name) and hides the ghosts so rent doesn't multiply!
+        sno_groups = {}
+        ghost_unit_ids = set()
+
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                sno = c.pact_costcenter_id
+                if sno and sno not in ['0', '1', 'None', '']:
+                    if sno not in sno_groups:
+                        sno_groups[sno] = []
+                    sno_groups[sno].append(eu)
+
+        for sno, eu_list in sno_groups.items():
+            if len(eu_list) > 1:
+                # The Master is the one with the longest combined string (e.g., AS001-S01,AS001-S02...)
+                master_eu = max(eu_list, key=lambda x: len(x['original_unit'].unit_number))
+                for eu in eu_list:
+                    if eu != master_eu:
+                        ghost_unit_ids.add(eu['unit_number'])
+
+        # Filter the ghost cards out of the UI array entirely
+        exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
+        t_count = len(exp_units)
+
         p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
         unique_contracts = set()
+
         for eu in exp_units:
             c = eu.get('latest_contract')
             if c and c.status in ['Active', 'Expired (Holdover)']:
@@ -653,10 +681,8 @@ def owner_occupancy_status(request, landlord_id):
             existing_cheques = set()
             existing_irv_keys = set()
 
-            # 🚀 DYNAMIC BULK-RECEIPT SHIELD
-            # 🚀 THE SHATTERED LEASE FIX
-            # If the accountant duplicated the SNO across multiple child units (Meera/Aroos),
-            # this pulls the receipts from ALL of them and merges them into one unified UI view!
+            # 🚀 2. THE LEDGER MERGE FIX
+            # Pulls receipts from ALL ghost sub-contracts so the Master Card gets the money!
             if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None']:
                 raw_entries = list(ContractLedger.objects.filter(
                     contract__pact_costcenter_id=ui_tracking_no,
@@ -665,8 +691,6 @@ def owner_occupancy_status(request, landlord_id):
             else:
                 raw_entries = list(c.true_ledger_entries.all())
 
-            rogue_entries = set()
-            brv_tracker = {}
             rogue_entries = set()
             brv_tracker = {}
 
