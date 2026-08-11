@@ -198,6 +198,11 @@
 </a>
 
 
+            <a href="{% url 'tenant_health' landlord.id %}" class="nav-item">
+
+    <i class="fa-solid fa-heart-pulse"></i> Tenant Health
+</a>
+
 
         {% if request.user.is_superuser %}
 <a href="{% url 'admin_dashboard' %}" class="nav-item">

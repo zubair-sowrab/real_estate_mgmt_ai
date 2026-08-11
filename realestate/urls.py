@@ -42,4 +42,5 @@ path('owner/<int:landlord_id>/occupancy/', views.owner_occupancy_status, name='o
 path('owner/<int:landlord_id>/cashflow/', views.owner_cashflow, name='owner_cashflow'),
 
 path('owner/<int:landlord_id>/expenses/', views.owner_expenses, name='owner_expenses'),
+path('owner/<int:landlord_id>/health/', views.tenant_health, name='tenant_health'),
 ]

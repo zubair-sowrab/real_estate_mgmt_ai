@@ -1331,3 +1331,224 @@ def owner_expenses(request, landlord_id):
         'notifications': get_dynamic_notifications(landlord),
         'notif_count': len(get_dynamic_notifications(landlord))
     })
+
+
+import re
+from django.db.models import Sum, Prefetch
+
+
+@login_required(login_url='/login/')
+def tenant_health(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    today = timezone.now().date()
+
+    pact_ll_id = str(landlord.pact_landlord_id).strip()
+    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+    allowed_prefixes = prefix_map.get(pact_ll_id, [])
+    if '02' not in allowed_prefixes: allowed_prefixes.append('02')
+
+    # 🚀 1. Fetch exactly like Occupancy Page
+    properties = Property.objects.filter(owner=landlord).prefetch_related(
+        Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections',
+                                                                 'contracts__true_ledger_entries'))
+    )
+
+    health_by_property = []
+
+    for p in properties:
+        # Get the deduplicated physical units for the building
+        exp_units, t_count, _, _ = get_property_expanded_stats(p)
+
+        # 🚀 2. Apply the Shattered Lease Deduplicator to match Occupancy 1:1
+        sno_groups = {}
+        ghost_unit_ids = set()
+
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                sno = c.pact_costcenter_id
+                if sno and sno not in ['0', '1', 'None', '']:
+                    if sno not in sno_groups:
+                        sno_groups[sno] = []
+                    sno_groups[sno].append(eu)
+
+        for sno, eu_list in sno_groups.items():
+            if len(eu_list) > 1:
+                master_eu = max(eu_list, key=lambda x: len(x['original_unit'].unit_number))
+                for eu in eu_list:
+                    if eu != master_eu:
+                        ghost_unit_ids.add(eu['unit_number'])
+
+        exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
+
+        # This is the True Physical Unit Count (e.g., 37 for Al Salam)
+        true_unit_count = len(exp_units)
+
+        valid_units = []
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+
+            # 🚀 3. STRICT RULE: ONLY PRESENT ACTIVE/HOLDOVER CONTRACTS
+            if not c or c.status not in ['Active', 'Expired (Holdover)']:
+                continue
+
+            clean_name = re.sub(r'\s*\d+\s*\d*$', '', c.tenant.full_name).strip()
+            if not clean_name: clean_name = c.tenant.full_name
+
+            # Replicate Ledger Logic for accurate rent collection
+            ui_tracking_no = c.pact_costcenter_id
+            c.official_ledger = []
+            existing_cheques = set()
+            existing_irv_keys = set()
+
+            if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None']:
+                raw_entries = list(ContractLedger.objects.filter(contract__pact_costcenter_id=ui_tracking_no,
+                                                                 contract__tenant=c.tenant))
+            else:
+                raw_entries = list(c.true_ledger_entries.all())
+
+            rogue_entries = set()
+            brv_tracker = {}
+            for entry in raw_entries:
+                if entry.doc_abbr in ['BRV', 'CRV', 'CRO']:
+                    key = f"{entry.doc_no}_{str(entry.chq_no).strip()}"
+                    if key not in brv_tracker: brv_tracker[key] = []
+                    brv_tracker[key].append(entry)
+            for key, entries in brv_tracker.items():
+                if len(entries) > 1:
+                    entries.sort(key=lambda x: float(x.amount), reverse=True)
+                    for rogue in entries[1:]: rogue_entries.add(rogue.id)
+
+            for entry in raw_entries:
+                if entry.id in rogue_entries: continue
+                if allowed_prefixes and entry.doc_no and '-' in entry.doc_no and '/' in entry.doc_no:
+                    comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
+                    if comp_code.isdigit() and len(comp_code) == 2 and comp_code not in allowed_prefixes:
+                        continue
+
+                amt = float(entry.amount)
+                if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
+                    existing_cheques.add(str(entry.chq_no).strip())
+                if entry.chq_date and entry.amount:
+                    existing_irv_keys.add(f"{entry.chq_date.strftime('%Y-%m-%d')}_{amt}")
+                elif entry.doc_date and entry.amount:
+                    existing_irv_keys.add(f"{entry.doc_date.strftime('%Y-%m-%d')}_{amt}")
+
+                c.official_ledger.append({
+                    'doc_date': entry.doc_date, 'doc_no': entry.doc_no, 'particular': entry.particular,
+                    'amount': amt, 'is_debit': entry.is_debit, 'chq_no': entry.chq_no,
+                    'chq_date': entry.chq_date, 'bank': entry.bank, 'tracking_no': entry.tracking_no,
+                })
+
+            for col in c.rent_collections:
+                part_label = str(col.particular).strip()
+                amt = float(col.amount)
+                if part_label.lower() in ['tasdeeq', 'sewerage', 'security deposit']: continue
+
+                chq_key = f"{col.due_date.strftime('%Y-%m-%d')}_{amt}" if col.due_date else ""
+                is_in_ledger = False
+                if col.cheque_number and str(col.cheque_number).strip() in existing_cheques:
+                    is_in_ledger = True
+                elif chq_key and chq_key in existing_irv_keys:
+                    is_in_ledger = True
+
+                if not is_in_ledger and col.due_date and col.status == 'Pending PDC':
+                    c.official_ledger.append({
+                        'doc_date': col.due_date, 'doc_no': "PDR (Pending)", 'particular': 'PDC Receivable',
+                        'amount': amt, 'is_debit': False, 'chq_no': col.cheque_number,
+                        'chq_date': col.due_date, 'bank': '', 'tracking_no': ui_tracking_no,
+                    })
+
+            c.official_ledger.sort(key=lambda x: x['doc_date'])
+
+            running_bal = 0.0
+            true_debits = 0.0
+            true_credits = 0.0
+            for item in c.official_ledger:
+                if 'PDR' in str(item['doc_no']).upper():
+                    item['running_bal'] = running_bal
+                elif item['is_debit']:
+                    running_bal += item['amount']
+                    true_debits += item['amount']
+                    item['running_bal'] = running_bal
+                else:
+                    running_bal -= item['amount']
+                    true_credits += item['amount']
+                    item['running_bal'] = running_bal
+
+            c.true_balance = running_bal
+
+            # Health Calculations
+            total_rent = true_debits if true_debits > 0 else float(c.comprehensive_rent_amount)
+            if total_rent == 0: total_rent = float(c.unit.base_rent)
+
+            cleared = true_credits
+            pdcs = c.collections.filter(status='Pending PDC')
+            pdc = float(sum(p.amount for p in pdcs))
+
+            if c.start_date and c.end_date:
+                total_days = (c.end_date - c.start_date).days or 1
+                passed_days = (today - c.start_date).days
+                time_pct = min(100, max(0, int((passed_days / total_days) * 100)))
+            else:
+                time_pct = 0
+
+            cleared_pct = min(100, int((cleared / total_rent) * 100)) if total_rent > 0 else 0
+            pdc_pct = min(100 - cleared_pct, int((pdc / total_rent) * 100)) if total_rent > 0 else 0
+
+            bounced_count = c.collections.filter(status='Bounced').count()
+
+            exp_agg = OwnerExpense.objects.filter(
+                landlord=landlord,
+                unit_name=c.unit.unit_number,
+                tower_name=c.unit.property_asset.name,
+                date__gte=c.start_date if c.start_date else datetime(2000, 1, 1).date()
+            ).aggregate(total=Sum('amount'))
+            expenses = float(exp_agg['total'] or 0)
+            exp_pct = min(100, int((expenses / total_rent) * 100)) if total_rent > 0 else 0
+
+            # Rating Logic
+            issues = []
+            if bounced_count > 0: issues.append(f"{bounced_count} Bounced Cheque(s) recorded.")
+            if cleared_pct < (time_pct - 15) and (cleared + pdc) < total_rent:
+                issues.append(f"Rent payments ({cleared_pct}%) are lagging behind elapsed time ({time_pct}%).")
+            if expenses > (total_rent * 0.15) and expenses > 0:
+                issues.append(f"Maintenance cost is high (AED {expenses:,.0f}).")
+
+            if bounced_count > 0 or cleared_pct < (time_pct - 25):
+                health, health_color, health_icon = "At Risk", "#ef4444", "fa-triangle-exclamation"
+            elif not issues and (cleared_pct >= time_pct or (cleared + pdc) >= total_rent * 0.95):
+                health, health_color, health_icon = "Excellent", "#10b981", "fa-shield-check"
+            elif issues:
+                health, health_color, health_icon = "Warning", "#f59e0b", "fa-circle-exclamation"
+            else:
+                health, health_color, health_icon = "Good", "#3b82f6", "fa-thumbs-up"
+
+            valid_units.append({
+                'contract': c, 'clean_name': clean_name, 'total_rent': total_rent,
+                'time_pct': time_pct, 'cleared': cleared, 'pdc': pdc,
+                'cleared_pct': cleared_pct, 'pdc_pct': pdc_pct,
+                'expenses': expenses, 'exp_pct': exp_pct, 'health': health, 'health_color': health_color,
+                'health_icon': health_icon, 'issues': issues
+            })
+
+        if valid_units:  # Only append building if it has active contracts
+            # 🚀 FIX: Sort strictly alphanumerically by Unit Number to match the Occupancy page
+            valid_units.sort(key=lambda x: x['contract'].unit.unit_number)
+
+            health_by_property.append({
+                'property_name': p.name,
+                'total_units_count': true_unit_count,  # Exact Occupancy match
+                'units': valid_units
+            })
+
+        health_by_property.sort(key=lambda x: x['property_name'])
+
+    return render(request, 'realestate/tenant_health.html', {
+        'landlord': landlord, 'property_data': health_by_property,
+        'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
+    })
