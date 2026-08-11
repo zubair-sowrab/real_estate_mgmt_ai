@@ -6,19 +6,31 @@ from django.db.models.functions import TruncMonth, TruncYear
 import re
 import itertools
 from datetime import datetime
+from dotenv import load_dotenv
 from django.db.models import Avg
 import json
 from django.http import HttpResponseForbidden
 from django.utils import timezone
 from datetime import timedelta, date
 import io
+import os
 import csv
 from django.http import HttpResponse
 
+from collections import defaultdict
+import xml.etree.ElementTree as ET
+import random
+from django.conf import settings
+import time
 from .models import Landlord, Property, Unit, Contract, Collection, Tenant, DocumentFolder, DocumentFile, \
-    ApprovalDocument, PropertyDocument, SyncLog, BankDeposit, ContractLedger
+    ApprovalDocument, PropertyDocument, SyncLog, BankDeposit, ContractLedger,OwnerExpense
 
 hidden_accounts = ['Landlord (ID: 1)', 'YBN General Portfolio', 'Accounts', 'Output VAT on Sale']
+
+
+
+
+
 
 
 def get_property_expanded_stats(property_obj):
@@ -1236,3 +1248,86 @@ def owner_cashflow(request, landlord_id):
         'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
     }
     return render(request, 'realestate/cashflow.html', context)
+
+
+from django.db.models import Q
+from collections import defaultdict
+
+
+@login_required(login_url='/login/')
+def owner_expenses(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    # The base query is strictly tied to the requested landlord ID
+    base_qs = OwnerExpense.objects.filter(landlord=landlord)
+
+    # Grab Filter Variables
+    date_from = request.GET.get('date_from', '').strip()
+    date_to = request.GET.get('date_to', '').strip()
+    tower_filter = request.GET.get('tower', '').strip()
+    unit_filter = request.GET.get('unit', '').strip()
+    search_query = request.GET.get('search', '').strip()
+
+    # Apply Filters
+    local_expenses = base_qs
+    if date_from: local_expenses = local_expenses.filter(date__gte=date_from)
+    if date_to: local_expenses = local_expenses.filter(date__lte=date_to)
+    if tower_filter: local_expenses = local_expenses.filter(tower_name__icontains=tower_filter)
+    if unit_filter: local_expenses = local_expenses.filter(unit_name__icontains=unit_filter)
+    if search_query:
+        local_expenses = local_expenses.filter(
+            Q(supplier__icontains=search_query) |
+            Q(remarks__icontains=search_query) |
+            Q(narration__icontains=search_query) |
+            Q(voucher_no__icontains=search_query)
+        )
+
+    # Group the Data Hierarchically
+    expenses_hierarchy = defaultdict(lambda: defaultdict(list))
+    total_expenses = 0.0
+
+    for exp in local_expenses:
+        total_expenses += float(exp.amount)
+        expenses_hierarchy[exp.tower_name][exp.unit_name].append({
+            'date': exp.date.strftime("%Y-%m-%d") if exp.date else 'N/A',
+            'voucher': exp.voucher_no,
+            'amount': float(exp.amount),
+            'supplier': exp.supplier,
+            'remarks': exp.remarks,
+            'narration': exp.narration,
+        })
+
+    final_data = []
+    for tower, units_dict in expenses_hierarchy.items():
+        tower_total = sum(sum(e['amount'] for e in expenses) for expenses in units_dict.values())
+        units_list = []
+        for unit, expenses in units_dict.items():
+            unit_total = sum(e['amount'] for e in expenses)
+            units_list.append({'name': unit, 'total': unit_total, 'expenses': expenses})
+
+        # Sort units alphabetically
+        units_list.sort(key=lambda x: x['name'])
+        final_data.append({'name': tower, 'total': tower_total, 'units': units_list})
+
+    final_data.sort(key=lambda x: x['total'], reverse=True)
+    unique_towers = base_qs.exclude(tower_name__isnull=True).values_list('tower_name', flat=True).distinct().order_by(
+        'tower_name')
+
+    return render(request, 'realestate/owner_expenses.html', {
+        'landlord': landlord,
+        'expenses_data': final_data,
+        'total_expenses': total_expenses,
+        'unique_towers': unique_towers,
+        'filters': {
+            'date_from': date_from,
+            'date_to': date_to,
+            'tower': tower_filter,
+            'unit': unit_filter,
+            'search': search_query
+        },
+        'notifications': get_dynamic_notifications(landlord),
+        'notif_count': len(get_dynamic_notifications(landlord))
+    })

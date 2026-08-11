@@ -188,10 +188,14 @@
             <a href="{% url 'owner_drive' landlord.id %}" class="nav-item {% block nav_drive %}{% endblock %}"><i class="fa-solid fa-cloud"></i> File Drive</a>
                         <a href="{% url 'owner_reports' landlord.id %}" class="nav-item {% block nav_owner_reports %}{% endblock %}"><i class="fa-solid fa-gear"></i>Reports</a>
 <a href="{% url 'owner_occupancy_status' landlord.id %}" class="nav-item">
+
     <i class="fa-solid fa-door-open"></i> Occupancy & Rent
 </a>
 
+<a href="{% url 'owner_expenses' landlord.id %}" class="nav-item">
 
+    <i class="fa-solid fa-money-bill-wave"></i> Expenses
+</a>
 
 
 

@@ -1,0 +1,155 @@
+{% extends 'realestate/base.html' %}
+{% load humanize %}
+
+{% block content %}
+<style>
+    .ybn-container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .ybn-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; }
+
+    /* Filter Bar */
+    .ybn-filter-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .ybn-filter-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+    .ybn-filter-group { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+    .ybn-filter-label { font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 5px; }
+    .ybn-filter-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background-color: #f8fafc; }
+    .ybn-filter-btn { background-color: #2563eb; color: white; border: none; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .ybn-filter-btn:hover { background-color: #1d4ed8; }
+
+    /* Interactive Accordions & Rotating Arrows */
+    details { transition: all 0.3s ease; }
+    details > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; outline: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    .ybn-chevron { transition: transform 0.3s ease; color: #64748b; font-size: 0.9rem; margin-right: 12px; }
+    details[open] > summary .ybn-chevron { transform: rotate(180deg); }
+
+    /* Tower Row */
+    .ybn-tower-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .ybn-tower-summary { background: #f8fafc; padding: 15px 20px; border-radius: 8px; font-size: 1.15rem; font-weight: 700; color: #1e293b; border-bottom: 1px solid transparent; }
+    details[open].ybn-tower-card > .ybn-tower-summary { border-bottom: 1px solid #e2e8f0; border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+
+    /* Unit Row */
+    .ybn-unit-card { border-bottom: 1px solid #e2e8f0; }
+    .ybn-unit-summary { background: #ffffff; padding: 12px 20px 12px 40px; font-size: 1rem; font-weight: 600; color: #334155; }
+    .ybn-unit-summary:hover { background: #f8fafc; }
+
+    /* Badges */
+    .ybn-badge-danger { background: #ef4444; color: white; padding: 4px 12px; border-radius: 20px; font-size: 1rem; font-weight: 600; }
+    .ybn-badge-secondary { background: #64748b; color: white; padding: 3px 10px; border-radius: 20px; font-size: 0.95rem; font-weight: 600; }
+
+    /* Table */
+    .ybn-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .ybn-table th { background-color: #1e293b; color: #fff; padding: 10px 20px; text-align: left; }
+    .ybn-table td { padding: 12px 20px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+</style>
+
+<div class="ybn-container">
+    <div class="ybn-header">
+        <h2 class="ybn-title">General Ledger Expenses</h2>
+        <h4 class="ybn-total text-danger">Total: AED {{ total_expenses|floatformat:2|intcomma }}</h4>
+    </div>
+
+    <!-- Filters -->
+    <div class="ybn-filter-card">
+        <form method="GET">
+            <div class="ybn-filter-row">
+                <div class="ybn-filter-group">
+                    <label class="ybn-filter-label">From Date</label>
+                    <input type="date" name="date_from" class="ybn-filter-input" value="{{ filters.date_from }}">
+                </div>
+                <div class="ybn-filter-group">
+                    <label class="ybn-filter-label">To Date</label>
+                    <input type="date" name="date_to" class="ybn-filter-input" value="{{ filters.date_to }}">
+                </div>
+                <div class="ybn-filter-group">
+                    <label class="ybn-filter-label">Building</label>
+                    <select name="tower" class="ybn-filter-input">
+                        <option value="">All Buildings</option>
+                        {% for t in unique_towers %}
+                            <option value="{{ t }}" {% if filters.tower == t %}selected{% endif %}>{{ t }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="ybn-filter-group">
+                    <label class="ybn-filter-label">Unit</label>
+                    <input type="text" name="unit" class="ybn-filter-input" placeholder="e.g. 502" value="{{ filters.unit }}">
+                </div>
+                <div class="ybn-filter-group" style="flex: 2;">
+                    <label class="ybn-filter-label">Search Details</label>
+                    <div style="display: flex;">
+                        <input type="text" name="search" class="ybn-filter-input" style="flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: none;" placeholder="Supplier, remarks..." value="{{ filters.search }}">
+                        <button type="submit" class="ybn-filter-btn" style="border-top-left-radius: 0; border-bottom-left-radius: 0;">Filter</button>
+                    </div>
+                </div>
+            </div>
+        </form>
+        {% if filters.date_from or filters.date_to or filters.tower or filters.unit or filters.search %}
+        <div style="text-align: right; margin-top: 10px;">
+            <a href="{% url 'owner_expenses' landlord.id %}" style="color: #ef4444; font-size: 0.85rem; font-weight: 600; text-decoration: none;">Clear Filters</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Expenses Hierarchy -->
+    {% for tower in expenses_data %}
+    <details class="ybn-tower-card">
+        <summary class="ybn-tower-summary">
+            <div style="display: flex; align-items: center;">
+                <i class="fa-solid fa-chevron-down ybn-chevron"></i>
+                <i class="fa-solid fa-building" style="color: #ca8a04; margin-right: 10px;"></i>
+                {{ tower.name }}
+            </div>
+            <span class="ybn-badge-danger">AED {{ tower.total|floatformat:2|intcomma }}</span>
+        </summary>
+
+        <div>
+            {% for unit in tower.units %}
+            <details class="ybn-unit-card">
+                <summary class="ybn-unit-summary">
+                    <div style="display: flex; align-items: center;">
+                        <i class="fa-solid fa-chevron-down ybn-chevron"></i>
+                        <i class="fa-solid fa-door-open" style="color: #94a3b8; margin-right: 10px;"></i>
+                        {{ unit.name }}
+                    </div>
+                    <span class="ybn-badge-secondary">AED {{ unit.total|floatformat:2|intcomma }}</span>
+                </summary>
+
+                <div style="padding: 15px; background: #f8fafc;">
+                    <table class="ybn-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 10%;">Date</th>
+                                <th style="width: 15%;">Voucher No</th>
+                                <th style="width: 25%;">Paid To</th>
+                                <th style="width: 35%;">Details & Narration</th>
+                                <th style="width: 15%; text-align: right;">Amount (AED)</th>
+                            </tr>
+                        </thead>
+                        <tbody style="background: white;">
+                            {% for exp in unit.expenses %}
+                            <tr>
+                                <td style="color: #64748b;">{{ exp.date }}</td>
+                                <td style="color: #2563eb; font-weight: 600;">{{ exp.voucher }}</td>
+                                <td style="font-weight: 600;">{{ exp.supplier }}</td>
+                                <td>
+                                    <div style="font-size: 0.85rem; color: #64748b;">
+                                        {% if exp.remarks and exp.remarks != 'None' %}
+                                            <div style="margin-bottom: 4px;"><strong style="color: #475569;">Doc:</strong> {{ exp.remarks }}</div>
+                                        {% endif %}
+                                        {% if exp.narration and exp.narration != 'None' %}
+                                            <div><strong style="color: #475569;">Line:</strong> {{ exp.narration }}</div>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {% endfor %}
+        </div>
+    </details>
+    {% endfor %}
+</div>
+{% endblock %}

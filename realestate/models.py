@@ -325,3 +325,26 @@ class ContractLedger(models.Model):
 
     class Meta:
         ordering = ['doc_date', 'id']
+
+
+
+# ------------------------------------------------------------------------
+# 7. OWNER EXPENSES (GENERAL LEDGER)
+# Syncs from ACC_DocDetails where the Owner is the DebitAccount
+# ------------------------------------------------------------------------
+class OwnerExpense(models.Model):
+    landlord = models.ForeignKey(Landlord, on_delete=models.CASCADE, related_name='expenses')
+    date = models.DateField()
+    voucher_no = models.CharField(max_length=100, unique=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    supplier = models.CharField(max_length=255, blank=True, null=True)
+    tower_name = models.CharField(max_length=255, blank=True, null=True)
+    unit_name = models.CharField(max_length=255, blank=True, null=True)
+    remarks = models.TextField(blank=True, null=True)
+    narration = models.TextField(blank=True, null=True)
+
+    class Meta:
+        ordering = ['-date', '-id']
+
+    def __str__(self):
+        return f"{self.voucher_no} - AED {self.amount}"
