@@ -28,11 +28,6 @@ from .models import Landlord, Property, Unit, Contract, Collection, Tenant, Docu
 hidden_accounts = ['Landlord (ID: 1)', 'YBN General Portfolio', 'Accounts', 'Output VAT on Sale']
 
 
-
-
-
-
-
 def get_property_expanded_stats(property_obj):
     units = property_obj.units.all()
     expanded_dict = {}
@@ -40,8 +35,16 @@ def get_property_expanded_stats(property_obj):
     for u in units:
         if '-' not in u.unit_number:
             continue
+
         raw_name = u.unit_number.strip()
         clean_name = raw_name.split(':')[0].strip()
+
+        # 🚀 THE STRING NORMALIZATION RULE
+        # Split by comma, strip whitespace, sort alphabetically, and rejoin.
+        if ',' in clean_name:
+            split_units = [x.strip() for x in clean_name.split(',')]
+            split_units.sort()
+            clean_name = ','.join(split_units)
 
         if clean_name not in expanded_dict:
             expanded_dict[clean_name] = {
