@@ -1342,6 +1342,8 @@ def owner_expenses(request, landlord_id):
 
 import re
 from django.db.models import Sum, Prefetch
+from django.utils import timezone
+from datetime import datetime
 
 
 @login_required(login_url='/login/')
@@ -1358,7 +1360,6 @@ def tenant_health(request, landlord_id):
     allowed_prefixes = prefix_map.get(pact_ll_id, [])
     if '02' not in allowed_prefixes: allowed_prefixes.append('02')
 
-    # 🚀 1. Fetch exactly like Occupancy Page
     properties = Property.objects.filter(owner=landlord).prefetch_related(
         Prefetch('units', queryset=Unit.objects.prefetch_related('contracts__tenant', 'contracts__collections',
                                                                  'contracts__true_ledger_entries'))
@@ -1366,11 +1367,14 @@ def tenant_health(request, landlord_id):
 
     health_by_property = []
 
+    # 🚀 NEW: Global Trackers for the Status Modal
+    global_expired = []
+    global_renewals = []
+    global_vacant = []
+
     for p in properties:
-        # Get the deduplicated physical units for the building
         exp_units, t_count, _, _ = get_property_expanded_stats(p)
 
-        # 🚀 2. Apply the Shattered Lease Deduplicator to match Occupancy 1:1
         sno_groups = {}
         ghost_unit_ids = set()
 
@@ -1391,22 +1395,24 @@ def tenant_health(request, landlord_id):
                         ghost_unit_ids.add(eu['unit_number'])
 
         exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
-
-        # This is the True Physical Unit Count (e.g., 37 for Al Salam)
         true_unit_count = len(exp_units)
 
         valid_units = []
         for eu in exp_units:
+
+            # 🚀 NEW: Catch Vacant Flats
+            if not eu['is_occupied']:
+                global_vacant.append({'property': p.name, 'unit': eu['unit_number']})
+                continue
+
             c = eu.get('latest_contract')
 
-            # 🚀 3. STRICT RULE: ONLY PRESENT ACTIVE/HOLDOVER CONTRACTS
             if not c or c.status not in ['Active', 'Expired (Holdover)']:
                 continue
 
             clean_name = re.sub(r'\s*\d+\s*\d*$', '', c.tenant.full_name).strip()
             if not clean_name: clean_name = c.tenant.full_name
 
-            # Replicate Ledger Logic for accurate rent collection
             ui_tracking_no = c.pact_costcenter_id
             c.official_ledger = []
             existing_cheques = set()
@@ -1489,7 +1495,6 @@ def tenant_health(request, landlord_id):
 
             c.true_balance = running_bal
 
-            # Health Calculations
             total_rent = true_debits if true_debits > 0 else float(c.comprehensive_rent_amount)
             if total_rent == 0: total_rent = float(c.unit.base_rent)
 
@@ -1497,28 +1502,6 @@ def tenant_health(request, landlord_id):
             pdcs = c.collections.filter(status='Pending PDC')
             pdc = float(sum(p.amount for p in pdcs))
 
-            if c.start_date and c.end_date:
-                total_days = (c.end_date - c.start_date).days or 1
-                passed_days = (today - c.start_date).days
-                time_pct = min(100, max(0, int((passed_days / total_days) * 100)))
-            else:
-                time_pct = 0
-
-            cleared_pct = min(100, int((cleared / total_rent) * 100)) if total_rent > 0 else 0
-            pdc_pct = min(100 - cleared_pct, int((pdc / total_rent) * 100)) if total_rent > 0 else 0
-
-            bounced_count = c.collections.filter(status='Bounced').count()
-
-            exp_agg = OwnerExpense.objects.filter(
-                landlord=landlord,
-                unit_name=c.unit.unit_number,
-                tower_name=c.unit.property_asset.name,
-                date__gte=c.start_date if c.start_date else datetime(2000, 1, 1).date()
-            ).aggregate(total=Sum('amount'))
-            expenses = float(exp_agg['total'] or 0)
-            exp_pct = min(100, int((expenses / total_rent) * 100)) if total_rent > 0 else 0
-
-            # Time Elapsed and Days Remaining Calculation
             days_left = 0
             days_expired = 0
 
@@ -1527,11 +1510,24 @@ def tenant_health(request, landlord_id):
                 passed_days = (today - c.start_date).days
                 time_pct = min(100, max(0, int((passed_days / total_days) * 100)))
 
-                # Calculate exact days left or expired
                 days_left = (c.end_date - today).days
                 if days_left < 0:
                     days_expired = abs(days_left)
                     days_left = 0
+
+                # 🚀 NEW: Populate Expiry and Renewal Lists
+                if days_expired > 0 or c.status == 'Expired (Holdover)':
+                    global_expired.append({
+                        'property': p.name, 'unit': c.unit.unit_number,
+                        'tenant': clean_name, 'end_date': c.end_date,
+                        'days_expired': days_expired
+                    })
+                elif 0 <= days_left <= 90:
+                    global_renewals.append({
+                        'property': p.name, 'unit': c.unit.unit_number,
+                        'tenant': clean_name, 'end_date': c.end_date,
+                        'days_left': days_left
+                    })
             else:
                 time_pct = 0
 
@@ -1549,10 +1545,7 @@ def tenant_health(request, landlord_id):
             expenses = float(exp_agg['total'] or 0)
             exp_pct = min(100, int((expenses / total_rent) * 100)) if total_rent > 0 else 0
 
-            # 🚀 UPDATED RATING LOGIC WITH TIME RISKS
             issues = []
-
-            # Critical Risks
             if bounced_count > 0:
                 issues.append(f"{bounced_count} Bounced Cheque(s) recorded.")
             if cleared_pct < (time_pct - 15) and (cleared + pdc) < total_rent:
@@ -1560,13 +1553,11 @@ def tenant_health(request, landlord_id):
             if days_expired > 0:
                 issues.append(f"Contract expired {days_expired} days ago.")
 
-            # Warning Risks
             if expenses > (total_rent * 0.15) and expenses > 0:
                 issues.append(f"Maintenance cost is high (AED {expenses:,.0f}).")
             if 0 < days_left <= 90:
                 issues.append(f"Only {days_left} days left for contract expiry.")
 
-            # Grade the Tenant
             if bounced_count > 0 or cleared_pct < (time_pct - 25) or days_expired > 0:
                 health, health_color, health_icon = "At Risk", "#ef4444", "fa-triangle-exclamation"
             elif not issues and (cleared_pct >= time_pct or (cleared + pdc) >= total_rent * 0.95):
@@ -1584,19 +1575,28 @@ def tenant_health(request, landlord_id):
                 'health_icon': health_icon, 'issues': issues
             })
 
-        if valid_units:  # Only append building if it has active contracts
-            # 🚀 FIX: Sort strictly alphanumerically by Unit Number to match the Occupancy page
+        if valid_units:
             valid_units.sort(key=lambda x: x['contract'].unit.unit_number)
 
             health_by_property.append({
                 'property_name': p.name,
-                'total_units_count': true_unit_count,  # Exact Occupancy match
+                'total_units_count': true_unit_count,
                 'units': valid_units
             })
 
-        health_by_property.sort(key=lambda x: x['property_name'])
+    health_by_property.sort(key=lambda x: x['property_name'])
+
+    # 🚀 Sort Tracking Lists
+    global_expired.sort(key=lambda x: x['end_date'], reverse=True)  # Latest expired first
+    global_renewals.sort(key=lambda x: x['days_left'])  # Least days left first
+    global_vacant.sort(key=lambda x: (x['property'], x['unit']))
 
     return render(request, 'realestate/tenant_health.html', {
-        'landlord': landlord, 'property_data': health_by_property,
-        'notifications': get_dynamic_notifications(landlord), 'notif_count': len(get_dynamic_notifications(landlord))
+        'landlord': landlord,
+        'property_data': health_by_property,
+        'global_expired': global_expired,
+        'global_renewals': global_renewals,
+        'global_vacant': global_vacant,
+        'notifications': get_dynamic_notifications(landlord),
+        'notif_count': len(get_dynamic_notifications(landlord))
     })
