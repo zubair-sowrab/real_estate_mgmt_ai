@@ -885,123 +885,127 @@ def owner_occupancy_status(request, landlord_id):
     })
 
 
+from django.db.models import Avg
+
+
 @login_required(login_url='/login/')
 def owner_reports(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
-        if not hasattr(request.user,
-                       'landlord_profile') or request.user.landlord_profile.id != landlord.id: return HttpResponseForbidden(
-            "<h1>403</h1>")
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
 
-    prop_filter = request.GET.get('property', '')
-    unit_filter = request.GET.get('unit', '').strip()
-    tenant_filter = request.GET.get('tenant', '').strip()
-    status_filter = request.GET.get('status', '')
-    contract_status_filter = request.GET.get('contract_status', '')
-    payee_filter = request.GET.get('payee', '')
+    # Grab list arrays from checkboxes
+    properties_filter = request.GET.getlist('property')
+    units_filter = request.GET.getlist('unit')
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
-    export_format = request.GET.get('export', '')
 
-    reports_data = Collection.objects.filter(contract__unit__property_asset__owner=landlord).select_related(
-        'contract__tenant', 'contract__unit__property_asset').order_by('-due_date')
+    # 1. Base Queries
+    ledger_qs = ContractLedger.objects.filter(contract__unit__property_asset__owner=landlord)
+    contract_qs = Contract.objects.filter(unit__property_asset__owner=landlord, start_date__isnull=False)
 
-    if prop_filter: reports_data = reports_data.filter(contract__unit__property_asset_id=prop_filter)
-    if unit_filter: reports_data = reports_data.filter(contract__unit__unit_number__icontains=unit_filter)
-    if tenant_filter: reports_data = reports_data.filter(contract__tenant__full_name__icontains=tenant_filter)
-    if status_filter: reports_data = reports_data.filter(status=status_filter)
-    if contract_status_filter: reports_data = reports_data.filter(contract__status=contract_status_filter)
-    if payee_filter: reports_data = reports_data.filter(payee_company=payee_filter)
-    if date_from: reports_data = reports_data.filter(due_date__gte=date_from)
-    if date_to: reports_data = reports_data.filter(due_date__lte=date_to)
+    if properties_filter:
+        ledger_qs = ledger_qs.filter(contract__unit__property_asset_id__in=properties_filter)
+        contract_qs = contract_qs.filter(unit__property_asset_id__in=properties_filter)
+    if units_filter:
+        ledger_qs = ledger_qs.filter(contract__unit__unit_number__in=units_filter)
+        contract_qs = contract_qs.filter(unit__unit_number__in=units_filter)
+    if date_from:
+        ledger_qs = ledger_qs.filter(doc_date__gte=date_from)
+        contract_qs = contract_qs.filter(start_date__gte=date_from)
+    if date_to:
+        ledger_qs = ledger_qs.filter(doc_date__lte=date_to)
+        contract_qs = contract_qs.filter(start_date__lte=date_to)
 
-    if export_format == 'csv':
-        response = HttpResponse(content_type='text/csv')
-        response[
-            'Content-Disposition'] = f'attachment; filename="Comprehensive_Report_{timezone.now().strftime("%Y%m%d")}.csv"'
-        writer = csv.writer(response)
-        writer.writerow(['Property', 'Unit', 'Tenant Name', 'Payee Company', 'Cheque/Ref Number', 'Cheque Amount (AED)',
-                         'Contract Net Rent (AED)', 'Due Date', 'Cheque Status', 'Contract Status'])
-        for row in reports_data:
-            writer.writerow(
-                [row.contract.unit.property_asset.name, row.contract.unit.unit_number, row.contract.tenant.full_name,
-                 row.payee_company if row.payee_company else "Direct to Owner", row.cheque_number, row.amount,
-                 row.contract.net_rent_amount, row.due_date.strftime("%Y-%m-%d") if row.due_date else 'N/A', row.status,
-                 row.contract.status])
-        return response
+    # --- 2. KPI CALCULATIONS ---
+    billed_agg = float(ledger_qs.filter(is_debit=True).aggregate(Sum('amount'))['amount__sum'] or 0)
+    cleared_agg = float(
+        ledger_qs.filter(is_debit=False).exclude(doc_no__icontains='PDR').aggregate(Sum('amount'))['amount__sum'] or 0)
+    pdc_agg = float(
+        ledger_qs.filter(is_debit=False, doc_no__icontains='PDR').aggregate(Sum('amount'))['amount__sum'] or 0)
+    secured_agg = cleared_agg + pdc_agg
 
-    monthly_qs = reports_data.filter(status='Cleared', due_date__isnull=False).annotate(
-        month=TruncMonth('due_date')).values('month').annotate(total=Sum('amount')).order_by('month')
+    kpis = {
+        'billed': billed_agg,
+        'cleared': cleared_agg,
+        'pdc': pdc_agg,
+        'secured': secured_agg
+    }
+
+    # --- 3. PREPARE CHART DATA ---
+
+    # A. Monthly Revenue Trend (Cleared Only)
+    monthly_qs = ledger_qs.filter(is_debit=False).exclude(doc_no__icontains='PDR').annotate(
+        month=TruncMonth('doc_date')
+    ).values('month').annotate(total=Sum('amount')).order_by('month')
+
     chart_months = [m['month'].strftime("%b %Y") for m in monthly_qs if m['month']]
     chart_collections = [float(m['total']) for m in monthly_qs]
 
-    raw_prop_qs = reports_data.values('contract__unit__property_asset__name', 'status').annotate(total=Sum('amount'))
-    prop_dict = {}
-    for p in raw_prop_qs:
-        p_name = p['contract__unit__property_asset__name']
-        clean_status = str(p['status']).strip() if p['status'] else 'Unknown'
-        if clean_status in ['Cleared', 'Replaced/Partial']:
-            if p_name not in prop_dict: prop_dict[p_name] = {'Cleared': 0.0, 'Replaced': 0.0}
-            if clean_status == 'Cleared':
-                prop_dict[p_name]['Cleared'] += float(p['total'] or 0)
-            elif clean_status == 'Replaced/Partial':
-                prop_dict[p_name]['Replaced'] += float(p['total'] or 0)
+    # B. Total Revenue by Property (Doughnut - Cleared Only)
+    prop_qs = ledger_qs.filter(is_debit=False).exclude(doc_no__icontains='PDR').values(
+        'contract__unit__property_asset__name').annotate(total=Sum('amount'))
+    chart_props = [p['contract__unit__property_asset__name'] for p in prop_qs]
+    chart_prop_cleared = [float(p['total']) for p in prop_qs]
 
-    sorted_props = sorted(prop_dict.items(), key=lambda x: x[1]['Cleared'] + x[1]['Replaced'], reverse=True)
-    chart_props = [p[0] for p in sorted_props]
-    chart_prop_cleared = [p[1]['Cleared'] for p in sorted_props]
-    chart_prop_replaced = [p[1]['Replaced'] for p in sorted_props]
+    # C. Target Rent Billed vs Actual Rent Collected (Bar Chart)
+    prop_perf = ledger_qs.values('contract__unit__property_asset__name', 'is_debit').annotate(total=Sum('amount'))
+    perf_dict = {}
+    for p in prop_perf:
+        name = p['contract__unit__property_asset__name']
+        if name not in perf_dict:
+            perf_dict[name] = {'billed': 0.0, 'collected': 0.0}
+        if p['is_debit']:
+            perf_dict[name]['billed'] += float(p['total'])
+        else:
+            perf_dict[name]['collected'] += float(p['total'])
 
-    raw_status_qs = reports_data.values('status').annotate(total=Sum('amount'))
-    status_dict = {}
-    for s in raw_status_qs:
-        clean_status = str(s['status']).strip() if s['status'] else 'Unknown'
-        status_dict[clean_status] = status_dict.get(clean_status, 0) + float(s['total'])
+    perf_props = list(perf_dict.keys())
+    perf_billed = [perf_dict[k]['billed'] for k in perf_props]
+    perf_collected = [perf_dict[k]['collected'] for k in perf_props]
 
-    chart_statuses = list(status_dict.keys())
-    chart_status_totals = list(status_dict.values())
+    # D. Historical Rent Growth (Yearly Avg)
+    growth_qs = contract_qs.annotate(year=TruncYear('start_date')).values('year').annotate(
+        avg_rent=Avg('comprehensive_rent_amount')).order_by('year')
+    growth_years = [g['year'].strftime('%Y') for g in growth_qs if g['year']]
+    growth_rents = [float(g['avg_rent']) for g in growth_qs]
 
-    contract_qs = Contract.objects.filter(unit__property_asset__owner=landlord, start_date__isnull=False)
-    if prop_filter: contract_qs = contract_qs.filter(unit__property_asset_id=prop_filter)
-    if unit_filter: contract_qs = contract_qs.filter(unit__unit_number__icontains=unit_filter)
-    if tenant_filter: contract_qs = contract_qs.filter(tenant__full_name__icontains=tenant_filter)
-    if contract_status_filter: contract_qs = contract_qs.filter(status=contract_status_filter)
-
-    rent_trend_qs = contract_qs.annotate(year=TruncYear('start_date')).values('year').annotate(
-        avg_rent=Avg('net_rent_amount')).order_by('year')
-    chart_years = [y['year'].strftime("%Y") for y in rent_trend_qs if y['year']]
-    chart_avg_rents = [float(y['avg_rent']) for y in rent_trend_qs]
+    # --- 4. DYNAMIC CHECKBOX MAPPING ---
+    properties_list = Property.objects.filter(owner=landlord).prefetch_related('units')
+    prop_unit_map = {}
+    for p in properties_list:
+        units = p.units.values_list('unit_number', flat=True).distinct().order_by('unit_number')
+        prop_unit_map[p.id] = {'name': p.name, 'units': list(units)}
 
     analytics = {
-        'months': json.dumps(chart_months), 'collections': json.dumps(chart_collections),
-        'props': json.dumps(chart_props), 'prop_cleared': json.dumps(chart_prop_cleared),
-        'prop_replaced': json.dumps(chart_prop_replaced),
-        'statuses': json.dumps(chart_statuses), 'status_totals': json.dumps(chart_status_totals),
-        'years': json.dumps(chart_years), 'avg_rents': json.dumps(chart_avg_rents),
+        'months': json.dumps(chart_months),
+        'collections': json.dumps(chart_collections),
+        'props': json.dumps(chart_props),
+        'prop_cleared': json.dumps(chart_prop_cleared),
+        'perf_props': json.dumps(perf_props),
+        'perf_billed': json.dumps(perf_billed),
+        'perf_collected': json.dumps(perf_collected),
+        'growth_years': json.dumps(growth_years),
+        'growth_rents': json.dumps(growth_rents),
     }
-
-    properties = Property.objects.filter(owner=landlord)
-    units_list = Unit.objects.filter(property_asset__owner=landlord).values_list('unit_number',
-                                                                                 flat=True).distinct().order_by(
-        'unit_number')
-    payee_list = Collection.objects.filter(contract__unit__property_asset__owner=landlord).exclude(
-        payee_company__isnull=True).exclude(payee_company='').values_list('payee_company',
-                                                                          flat=True).distinct().order_by(
-        'payee_company')
-    total_amount = reports_data.aggregate(Sum('amount'))['amount__sum'] or 0
-    notifications = get_dynamic_notifications(landlord)
 
     context = {
-        'landlord': landlord, 'reports_data': reports_data, 'properties': properties, 'units_list': units_list,
-        'payee_list': payee_list,
-        'total_amount': total_amount, 'analytics': analytics,
-        'filters': {'property': int(prop_filter) if prop_filter.isdigit() else '', 'unit': unit_filter,
-                    'tenant': tenant_filter, 'status': status_filter, 'contract_status': contract_status_filter,
-                    'payee': payee_filter, 'date_from': date_from, 'date_to': date_to},
-        'notifications': notifications, 'notif_count': len(notifications)
+        'landlord': landlord,
+        'kpis': kpis,
+        'analytics': analytics,
+        'prop_unit_map': json.dumps(prop_unit_map),
+        'properties': properties_list,
+        'filters': {
+            'properties': [int(x) for x in properties_filter if x.isdigit()],
+            'units_json': json.dumps(units_filter),
+            'date_from': date_from,
+            'date_to': date_to
+        },
+        'notifications': get_dynamic_notifications(landlord),
+        'notif_count': len(get_dynamic_notifications(landlord))
     }
     return render(request, 'realestate/reports.html', context)
-
 
 @login_required(login_url='/login/')
 def upload_document(request, landlord_id):
@@ -1514,15 +1518,56 @@ def tenant_health(request, landlord_id):
             expenses = float(exp_agg['total'] or 0)
             exp_pct = min(100, int((expenses / total_rent) * 100)) if total_rent > 0 else 0
 
-            # Rating Logic
+            # Time Elapsed and Days Remaining Calculation
+            days_left = 0
+            days_expired = 0
+
+            if c.start_date and c.end_date:
+                total_days = (c.end_date - c.start_date).days or 1
+                passed_days = (today - c.start_date).days
+                time_pct = min(100, max(0, int((passed_days / total_days) * 100)))
+
+                # Calculate exact days left or expired
+                days_left = (c.end_date - today).days
+                if days_left < 0:
+                    days_expired = abs(days_left)
+                    days_left = 0
+            else:
+                time_pct = 0
+
+            cleared_pct = min(100, int((cleared / total_rent) * 100)) if total_rent > 0 else 0
+            pdc_pct = min(100 - cleared_pct, int((pdc / total_rent) * 100)) if total_rent > 0 else 0
+
+            bounced_count = c.collections.filter(status='Bounced').count()
+
+            exp_agg = OwnerExpense.objects.filter(
+                landlord=landlord,
+                unit_name=c.unit.unit_number,
+                tower_name=c.unit.property_asset.name,
+                date__gte=c.start_date if c.start_date else datetime(2000, 1, 1).date()
+            ).aggregate(total=Sum('amount'))
+            expenses = float(exp_agg['total'] or 0)
+            exp_pct = min(100, int((expenses / total_rent) * 100)) if total_rent > 0 else 0
+
+            # 🚀 UPDATED RATING LOGIC WITH TIME RISKS
             issues = []
-            if bounced_count > 0: issues.append(f"{bounced_count} Bounced Cheque(s) recorded.")
+
+            # Critical Risks
+            if bounced_count > 0:
+                issues.append(f"{bounced_count} Bounced Cheque(s) recorded.")
             if cleared_pct < (time_pct - 15) and (cleared + pdc) < total_rent:
                 issues.append(f"Rent payments ({cleared_pct}%) are lagging behind elapsed time ({time_pct}%).")
+            if days_expired > 0:
+                issues.append(f"Contract expired {days_expired} days ago.")
+
+            # Warning Risks
             if expenses > (total_rent * 0.15) and expenses > 0:
                 issues.append(f"Maintenance cost is high (AED {expenses:,.0f}).")
+            if 0 < days_left <= 90:
+                issues.append(f"Only {days_left} days left for contract expiry.")
 
-            if bounced_count > 0 or cleared_pct < (time_pct - 25):
+            # Grade the Tenant
+            if bounced_count > 0 or cleared_pct < (time_pct - 25) or days_expired > 0:
                 health, health_color, health_icon = "At Risk", "#ef4444", "fa-triangle-exclamation"
             elif not issues and (cleared_pct >= time_pct or (cleared + pdc) >= total_rent * 0.95):
                 health, health_color, health_icon = "Excellent", "#10b981", "fa-shield-check"
