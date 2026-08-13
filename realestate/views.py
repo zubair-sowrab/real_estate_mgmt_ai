@@ -1545,20 +1545,26 @@ def tenant_health(request, landlord_id):
             expenses = float(exp_agg['total'] or 0)
             exp_pct = min(100, int((expenses / total_rent) * 100)) if total_rent > 0 else 0
 
+            # 🚀 UPDATED RATING LOGIC WITH PDC FORGIVENESS
             issues = []
+
+            # Critical Risks
             if bounced_count > 0:
                 issues.append(f"{bounced_count} Bounced Cheque(s) recorded.")
-            if cleared_pct < (time_pct - 15) and (cleared + pdc) < total_rent:
+            if cleared_pct < (time_pct - 15) and (cleared + pdc) < total_rent * 0.95:
                 issues.append(f"Rent payments ({cleared_pct}%) are lagging behind elapsed time ({time_pct}%).")
             if days_expired > 0:
                 issues.append(f"Contract expired {days_expired} days ago.")
 
+            # Warning Risks
             if expenses > (total_rent * 0.15) and expenses > 0:
                 issues.append(f"Maintenance cost is high (AED {expenses:,.0f}).")
             if 0 < days_left <= 90:
                 issues.append(f"Only {days_left} days left for contract expiry.")
 
-            if bounced_count > 0 or cleared_pct < (time_pct - 25) or days_expired > 0:
+            # Grade the Tenant (Now explicitly respects Secured PDCs!)
+            if bounced_count > 0 or days_expired > 0 or (
+                    cleared_pct < (time_pct - 25) and (cleared + pdc) < total_rent * 0.95):
                 health, health_color, health_icon = "At Risk", "#ef4444", "fa-triangle-exclamation"
             elif not issues and (cleared_pct >= time_pct or (cleared + pdc) >= total_rent * 0.95):
                 health, health_color, health_icon = "Excellent", "#10b981", "fa-shield-check"
@@ -1566,7 +1572,6 @@ def tenant_health(request, landlord_id):
                 health, health_color, health_icon = "Warning", "#f59e0b", "fa-circle-exclamation"
             else:
                 health, health_color, health_icon = "Good", "#3b82f6", "fa-thumbs-up"
-
             valid_units.append({
                 'contract': c, 'clean_name': clean_name, 'total_rent': total_rent,
                 'time_pct': time_pct, 'cleared': cleared, 'pdc': pdc,
