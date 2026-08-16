@@ -1278,6 +1278,14 @@ def owner_expenses(request, landlord_id):
     unit_filter = request.GET.get('unit', '').strip()
     search_query = request.GET.get('search', '').strip()
 
+    # 🚀 NEW: Auto-set dates to the current month if no filters are applied
+    if not bool(request.GET):
+        today = timezone.now().date()
+        first_day_of_month = today.replace(day=1)
+
+        date_from = first_day_of_month.strftime("%Y-%m-%d")
+        date_to = today.strftime("%Y-%m-%d")
+
     # Apply Filters
     local_expenses = base_qs
     if date_from: local_expenses = local_expenses.filter(date__gte=date_from)
