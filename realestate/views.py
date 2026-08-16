@@ -627,6 +627,14 @@ def owner_tenant_details(request, landlord_id):
     })
 
 
+import json
+from django.db.models import Prefetch
+from django.shortcuts import render, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseForbidden
+from django.utils import timezone
+
+
 @login_required(login_url='/login/')
 def owner_occupancy_status(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
@@ -649,11 +657,9 @@ def owner_occupancy_status(request, landlord_id):
     global_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
 
     for p in properties:
-        exp_units, t_count, _, _ = get_property_expanded_stats(p)
+        exp_units, _, _, _ = get_property_expanded_stats(p)
 
         # 🚀 1. THE SHATTERED LEASE UI DEDUPLICATOR
-        # Groups contracts by SNO. If Meera has 6 cards sharing the same lease,
-        # it finds the Master Unit (longest name) and hides the ghosts so rent doesn't multiply!
         sno_groups = {}
         ghost_unit_ids = set()
 
@@ -668,101 +674,88 @@ def owner_occupancy_status(request, landlord_id):
 
         for sno, eu_list in sno_groups.items():
             if len(eu_list) > 1:
-                # The Master is the one with the longest combined string (e.g., AS001-S01,AS001-S02...)
                 master_eu = max(eu_list, key=lambda x: len(x['original_unit'].unit_number))
                 for eu in eu_list:
                     if eu != master_eu:
                         ghost_unit_ids.add(eu['unit_number'])
 
-            # Filter the ghost cards out of the UI array entirely
-            # 🚀 1. THE SHATTERED LEASE UI DEDUPLICATOR
-            exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
+        exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
 
-            # 🚀 2. THE PHYSICAL SPACE DEDUPLICATOR (Solves legacy Vacant duplicates)
-            occupied_base_units = set()
+        # 🚀 2. THE PHYSICAL SPACE DEDUPLICATOR (Solves legacy Vacant duplicates)
+        occupied_base_units = set()
 
-            # Step A: Map every base physical space that is actively occupied
-            for eu in exp_units:
-                c = eu.get('latest_contract')
-                if c and c.status in ['Active', 'Expired (Holdover)']:
-                    sub_units = [u.strip() for u in eu['unit_number'].split(',')]
-                    for su in sub_units:
-                        occupied_base_units.add(su)
-
-            # Step B: Map standalone units that exist in the database
-            all_standalone_units = set()
-            for eu in exp_units:
-                if ',' not in eu['unit_number']:
-                    all_standalone_units.add(eu['unit_number'].strip())
-
-            physical_ghost_ids = set()
-            for eu in exp_units:
-                c = eu.get('latest_contract')
-                is_occupied = c and c.status in ['Active', 'Expired (Holdover)']
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
                 sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+                for su in sub_units:
+                    occupied_base_units.add(su)
 
-                if not is_occupied:
-                    # Rule 1: Hide vacant cards if their physical space is already occupied by someone else
-                    if any(su in occupied_base_units for su in sub_units):
-                        physical_ghost_ids.add(eu['unit_number'])
-                    # Rule 2: Hide combined vacant cards if their individual pieces already exist standalone
-                    elif len(sub_units) > 1 and all(su in all_standalone_units for su in sub_units):
-                        physical_ghost_ids.add(eu['unit_number'])
+        all_standalone_units = set()
+        for eu in exp_units:
+            if ',' not in eu['unit_number']:
+                all_standalone_units.add(eu['unit_number'].strip())
 
-                    # Apply the physical filter
-                    exp_units = [eu for eu in exp_units if eu['unit_number'] not in physical_ghost_ids]
+        physical_ghost_ids = set()
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            is_occupied = c and c.status in ['Active', 'Expired (Holdover)']
+            sub_units = [u.strip() for u in eu['unit_number'].split(',')]
 
-                    # 🚀 3. THE ACCURATE PHYSICAL COUNTER
-                    # Instead of counting UI cards, we count the actual comma-separated spaces inside them
-                    t_count = 0
-                    occupied_count = 0
-                    flats, parkings, shops = 0, 0, 0
+            if not is_occupied:
+                if any(su in occupied_base_units for su in sub_units):
+                    physical_ghost_ids.add(eu['unit_number'])
+                elif len(sub_units) > 1 and all(su in all_standalone_units for su in sub_units):
+                    physical_ghost_ids.add(eu['unit_number'])
 
-                    for eu in exp_units:
-                        sub_units = [u.strip() for u in eu['unit_number'].split(',')]
-                        physical_qty = len(sub_units)
-                        t_count += physical_qty
+        # Apply the physical filter
+        exp_units = [eu for eu in exp_units if eu['unit_number'] not in physical_ghost_ids]
 
-                        if eu.get('latest_contract') and eu['latest_contract'].status in ['Active',
-                                                                                          'Expired (Holdover)']:
-                            occupied_count += physical_qty
+        # 🚀 3. THE ACCURATE PHYSICAL COUNTER
+        t_count = 0
+        occupied_count = 0
+        flats, parkings, shops = 0, 0, 0
 
-                        # Calculate Flats, Shops, and Parkings
-                        for sub_u in sub_units:
-                            parts = sub_u.split('-')
-                            suffix = parts[-1].upper() if len(parts) > 1 else sub_u.upper()
+        for eu in exp_units:
+            sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+            physical_qty = len(sub_units)
+            t_count += physical_qty
 
-                            if 'P' in suffix:
-                                parkings += 1
-                            elif 'S' in suffix:
-                                shops += 1
-                            # 🚀 NEW: Added 'R' to be counted alongside Flats (F, G, M)
-                            elif 'F' in suffix or 'G' in suffix or 'M' in suffix or 'R' in suffix:
-                                flats += 1
+            if eu.get('latest_contract') and eu['latest_contract'].status in ['Active', 'Expired (Holdover)']:
+                occupied_count += physical_qty
 
-                    # Calculate accurate occupancy rate using the true physical counts
-                    occ_rate = int((occupied_count / t_count) * 100) if t_count > 0 else 0
+            # Calculate Flats, Shops, Parkings, and Rooms (R)
+            for sub_u in sub_units:
+                parts = sub_u.split('-')
+                suffix = parts[-1].upper() if len(parts) > 1 else sub_u.upper()
 
-                    p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
-                    unique_contracts = set()
+                if 'P' in suffix:
+                    parkings += 1
+                elif 'S' in suffix:
+                    shops += 1
+                elif 'F' in suffix or 'G' in suffix or 'M' in suffix or 'R' in suffix:
+                    flats += 1
+
+        occ_rate = int((occupied_count / t_count) * 100) if t_count > 0 else 0
+
+        # 🚀 4. SETUP FOR FINANCIAL CALCULATIONS
+        p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
+        unique_contracts = set()
 
         for eu in exp_units:
             c = eu.get('latest_contract')
             if c and c.status in ['Active', 'Expired (Holdover)']:
                 unique_contracts.add(c)
 
+        # 🚀 5. FINANCIAL LEDGER MERGE
         for c in unique_contracts:
             ui_tracking_no = c.pact_costcenter_id
-
-            # 🚀 Clean, dynamic rent assignment. No hardcoded SNOs or names!
             adjusted_rent = float(c.comprehensive_rent_amount)
 
             c.official_ledger = []
             existing_cheques = set()
             existing_irv_keys = set()
 
-            # 🚀 2. THE LEDGER MERGE FIX
-            # Pulls receipts from ALL ghost sub-contracts so the Master Card gets the money!
             if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None']:
                 raw_entries = list(ContractLedger.objects.filter(
                     contract__pact_costcenter_id=ui_tracking_no,
@@ -795,6 +788,7 @@ def owner_occupancy_status(request, landlord_id):
                     comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
                     if comp_code.isdigit() and len(comp_code) == 2 and comp_code not in allowed_prefixes:
                         continue
+
                 if entry.tracking_no: ui_tracking_no = entry.tracking_no
 
                 part_lower = str(entry.particular).lower()
@@ -803,7 +797,6 @@ def owner_occupancy_status(request, landlord_id):
                 if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
                     existing_cheques.add(str(entry.chq_no).strip())
 
-                    # 🚀 MEERA'S PDC MATCHER FIX: Uses Cheque Date to perfectly clear PDCs!
                 if entry.chq_date and entry.amount:
                     existing_irv_keys.add(f"{entry.chq_date.strftime('%Y-%m-%d')}_{amt}")
                 elif entry.doc_date and entry.amount:
@@ -833,10 +826,8 @@ def owner_occupancy_status(request, landlord_id):
                 part_label = str(col.particular).strip()
                 amt = float(col.amount)
 
-                # 🚀 DYNAMIC PDC CATEGORY SHIELD: Ignores non-rent PDCs by category name, not numbers!
                 if part_label.lower() in ['tasdeeq', 'sewerage', 'security deposit']:
                     continue
-
                 if part_label == '15': part_label = "Rent"
 
                 chq_key = f"{col.due_date.strftime('%Y-%m-%d')}_{amt}" if col.due_date else ""
@@ -859,8 +850,6 @@ def owner_occupancy_status(request, landlord_id):
                 if col.status in ['Cleared', 'Posted']:
                     c.ui_cleared_paid += amt
 
-                # 🚀 RESTORE THE PDC DISPLAY LOGIC
-                # This explicitly appends unposted PDCs to the bottom of the tenant's ledger ONLY if "With PDC" is active
                 if view_mode == 'full' and col.status == 'Pending PDC' and not is_in_ledger:
                     c.official_ledger.append({
                         'doc_date': col.due_date,
@@ -894,7 +883,6 @@ def owner_occupancy_status(request, landlord_id):
                     true_total_cr += item['amount']
                     item['running_bal'] = running_bal
 
-            # 🚀 LEDGER ASSIGNMENT
             c.true_total_rent = true_total_dr if true_total_dr > 0 else adjusted_rent
             c.true_total_paid = true_total_cr
             c.true_balance = running_bal if true_total_dr > 0 else adjusted_rent
@@ -906,20 +894,16 @@ def owner_occupancy_status(request, landlord_id):
                                                                                                                       c.true_total_rent - c.true_total_paid)
             c.ui_strict_balance = max(0, c.true_total_rent - c.true_total_paid)
 
-            # 🚀 ACCUMULATE STATS ONCE PER CONTRACT AT THE END OF THE CONTRACT LOOP
             p_stats['total_rent'] += c.true_total_rent
             p_stats['paid'] += c.true_total_paid
             if view_mode == 'full':
                 p_stats['pdc'] += pending_pdcs
 
-            c.ui_remaining_balance = max(0, c.true_total_rent - c.true_paid_with_pdc) if view_mode == 'full' else max(0,
-                                                                                                                      c.true_total_rent - c.true_total_paid)
-            c.ui_strict_balance = max(0, c.true_total_rent - c.true_total_paid)
-
         if view_mode == 'strict':
             calc_balance = p_stats['total_rent'] - p_stats['paid']
         else:
             calc_balance = p_stats['total_rent'] - (p_stats['paid'] + p_stats['pdc'])
+
         p_stats['balance'] = calc_balance if calc_balance > 0 else 0
 
         tr = p_stats['total_rent']
@@ -933,7 +917,8 @@ def owner_occupancy_status(request, landlord_id):
             global_stats[k] += p_stats[k]
 
         property_data.append({
-            'property': p, 'occ_rate': occ_rate,
+            'property': p,
+            'occ_rate': occ_rate,
             'unit_breakdown': {
                 'occupied': occupied_count,
                 'vacant': t_count - occupied_count,
@@ -941,20 +926,27 @@ def owner_occupancy_status(request, landlord_id):
                 'parkings': parkings,
                 'shops': shops
             },
-            'expanded_units': exp_units, 'total_count': t_count, 'stats': p_stats,
+            'expanded_units': exp_units,
+            'total_count': t_count,
+            'stats': p_stats,
             'stats_json': json.dumps(p_stats)
         })
 
-        gt = global_stats['total_rent']
-        global_stats['paid_pct'] = round((global_stats['paid'] / gt) * 100, 1) if gt > 0 else 0
-        global_stats['pdc_pct'] = round((global_stats['pdc'] / gt) * 100, 1) if gt > 0 else 0
-        global_stats['replaced_pct'] = round((global_stats['replaced'] / gt) * 100, 1) if gt > 0 else 0
-        global_stats['bounced_pct'] = round((global_stats['bounced'] / gt) * 100, 1) if gt > 0 else 0
-        global_stats['balance_pct'] = round((global_stats['balance'] / gt) * 100, 1) if gt > 0 else 0
+    # Global Stats Finalization
+    gt = global_stats['total_rent']
+    global_stats['paid_pct'] = round((global_stats['paid'] / gt) * 100, 1) if gt > 0 else 0
+    global_stats['pdc_pct'] = round((global_stats['pdc'] / gt) * 100, 1) if gt > 0 else 0
+    global_stats['replaced_pct'] = round((global_stats['replaced'] / gt) * 100, 1) if gt > 0 else 0
+    global_stats['bounced_pct'] = round((global_stats['bounced'] / gt) * 100, 1) if gt > 0 else 0
+    global_stats['balance_pct'] = round((global_stats['balance'] / gt) * 100, 1) if gt > 0 else 0
 
     return render(request, 'realestate/occupancy_status.html', {
-        'landlord': landlord, 'property_data': property_data, 'global_stats': global_stats,
-        'global_stats_json': json.dumps(global_stats), 'view_mode': view_mode, 'today': timezone.now().date()
+        'landlord': landlord,
+        'property_data': property_data,
+        'global_stats': global_stats,
+        'global_stats_json': json.dumps(global_stats),
+        'view_mode': view_mode,
+        'today': timezone.now().date()
     })
 
 
