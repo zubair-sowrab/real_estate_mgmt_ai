@@ -674,12 +674,77 @@ def owner_occupancy_status(request, landlord_id):
                     if eu != master_eu:
                         ghost_unit_ids.add(eu['unit_number'])
 
-        # Filter the ghost cards out of the UI array entirely
-        exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
-        t_count = len(exp_units)
+            # Filter the ghost cards out of the UI array entirely
+            # 🚀 1. THE SHATTERED LEASE UI DEDUPLICATOR
+            exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
 
-        p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
-        unique_contracts = set()
+            # 🚀 2. THE PHYSICAL SPACE DEDUPLICATOR (Solves legacy Vacant duplicates)
+            occupied_base_units = set()
+
+            # Step A: Map every base physical space that is actively occupied
+            for eu in exp_units:
+                c = eu.get('latest_contract')
+                if c and c.status in ['Active', 'Expired (Holdover)']:
+                    sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+                    for su in sub_units:
+                        occupied_base_units.add(su)
+
+            # Step B: Map standalone units that exist in the database
+            all_standalone_units = set()
+            for eu in exp_units:
+                if ',' not in eu['unit_number']:
+                    all_standalone_units.add(eu['unit_number'].strip())
+
+            physical_ghost_ids = set()
+            for eu in exp_units:
+                c = eu.get('latest_contract')
+                is_occupied = c and c.status in ['Active', 'Expired (Holdover)']
+                sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+
+                if not is_occupied:
+                    # Rule 1: Hide vacant cards if their physical space is already occupied by someone else
+                    if any(su in occupied_base_units for su in sub_units):
+                        physical_ghost_ids.add(eu['unit_number'])
+                    # Rule 2: Hide combined vacant cards if their individual pieces already exist standalone
+                    elif len(sub_units) > 1 and all(su in all_standalone_units for su in sub_units):
+                        physical_ghost_ids.add(eu['unit_number'])
+
+                    # Apply the physical filter
+                    exp_units = [eu for eu in exp_units if eu['unit_number'] not in physical_ghost_ids]
+
+                    # 🚀 3. THE ACCURATE PHYSICAL COUNTER
+                    # Instead of counting UI cards, we count the actual comma-separated spaces inside them
+                    t_count = 0
+                    occupied_count = 0
+                    flats, parkings, shops = 0, 0, 0
+
+                    for eu in exp_units:
+                        sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+                        physical_qty = len(sub_units)
+                        t_count += physical_qty
+
+                        if eu.get('latest_contract') and eu['latest_contract'].status in ['Active',
+                                                                                          'Expired (Holdover)']:
+                            occupied_count += physical_qty
+
+                        # Calculate Flats, Shops, and Parkings
+                        for sub_u in sub_units:
+                            parts = sub_u.split('-')
+                            suffix = parts[-1].upper() if len(parts) > 1 else sub_u.upper()
+
+                            if 'P' in suffix:
+                                parkings += 1
+                            elif 'S' in suffix:
+                                shops += 1
+                            # 🚀 NEW: Added 'R' to be counted alongside Flats (F, G, M)
+                            elif 'F' in suffix or 'G' in suffix or 'M' in suffix or 'R' in suffix:
+                                flats += 1
+
+                    # Calculate accurate occupancy rate using the true physical counts
+                    occ_rate = int((occupied_count / t_count) * 100) if t_count > 0 else 0
+
+                    p_stats = {'total_rent': 0, 'paid': 0, 'pdc': 0, 'bounced': 0, 'replaced': 0, 'balance': 0}
+                    unique_contracts = set()
 
         for eu in exp_units:
             c = eu.get('latest_contract')
@@ -868,7 +933,15 @@ def owner_occupancy_status(request, landlord_id):
             global_stats[k] += p_stats[k]
 
         property_data.append({
-            'property': p, 'expanded_units': exp_units, 'total_count': t_count, 'stats': p_stats,
+            'property': p, 'occ_rate': occ_rate,
+            'unit_breakdown': {
+                'occupied': occupied_count,
+                'vacant': t_count - occupied_count,
+                'flats': flats,
+                'parkings': parkings,
+                'shops': shops
+            },
+            'expanded_units': exp_units, 'total_count': t_count, 'stats': p_stats,
             'stats_json': json.dumps(p_stats)
         })
 

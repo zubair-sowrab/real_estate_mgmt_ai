@@ -162,13 +162,51 @@
                 <i class="fa-solid fa-building" style="color: var(--primary-gold);"></i>
                 {{ data.property.name }}
             </div>
+
             <div class="property-stats">
+
+                <span style="background: {% if data.occ_rate == 100 %}#10b981{% elif data.occ_rate > 70 %}#f59e0b{% else %}#ef4444{% endif %}; color: white; padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 0.75rem; margin-right: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                    {{ data.occ_rate }}% Occupied
+                </span>
                 <span>Total Units: {{ data.total_count }}</span>
                 <i class="fa-solid fa-chevron-down toggle-icon"></i>
             </div>
         </div>
 
         <div class="units-container">
+            <!-- 🚀 NEW: Inline Dashboard Breakdown -->
+            <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; padding-bottom: 15px; border-bottom: 1px solid var(--border-light); align-items: center;">
+
+                <!-- Occupied / Vacant Badges -->
+                <div style="display: flex; gap: 10px;">
+                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 8px 15px; border-radius: 6px; display: flex; align-items: center; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <div style="font-size: 1.2rem; font-weight: 800; color: #16a34a; line-height: 1;">{{ data.unit_breakdown.occupied }}</div>
+                        <div style="font-size: 0.75rem; color: #166534; font-weight: 700; text-transform: uppercase;">Occupied</div>
+                    </div>
+                    <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 8px 15px; border-radius: 6px; display: flex; align-items: center; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <div style="font-size: 1.2rem; font-weight: 800; color: #dc2626; line-height: 1;">{{ data.unit_breakdown.vacant }}</div>
+                        <div style="font-size: 0.75rem; color: #991b1b; font-weight: 700; text-transform: uppercase;">Vacant</div>
+                    </div>
+                </div>
+
+                <div style="height: 30px; border-left: 2px solid #e2e8f0; margin: 0 5px;"></div>
+
+                <!-- Unit Types -->
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <div style="background: white; border: 1px solid #e2e8f0; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <i class="fa-solid fa-house text-primary"></i>
+                        <span style="font-weight: 800; color: #1e293b;">{{ data.unit_breakdown.flats }} <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Flats</span></span>
+                    </div>
+                    <div style="background: white; border: 1px solid #e2e8f0; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <i class="fa-solid fa-store text-success"></i>
+                        <span style="font-weight: 800; color: #1e293b;">{{ data.unit_breakdown.shops }} <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Shops</span></span>
+                    </div>
+                    <div style="background: white; border: 1px solid #e2e8f0; padding: 6px 12px; border-radius: 6px; display: flex; align-items: center; gap: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+                        <i class="fa-solid fa-square-parking text-warning"></i>
+                        <span style="font-weight: 800; color: #1e293b;">{{ data.unit_breakdown.parkings }} <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Parking</span></span>
+                    </div>
+                </div>
+            </div>
             <div class="units-grid">
                 {% for eu in data.expanded_units %}
                <div class="unit-box" style="flex-direction: column; align-items: stretch; gap: 10px;">

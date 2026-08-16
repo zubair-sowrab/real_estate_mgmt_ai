@@ -182,7 +182,7 @@
 
             <a href="{% url 'owner_dashboard' landlord.id %}" class="nav-item {% block nav_dash %}{% endblock %}"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
             <!--<a href="{% url 'owner_properties' landlord.id %}" class="nav-item {% block nav_assets %}{% endblock %}"><i class="fa-solid fa-building"></i> Asset Management</a>-->
-            <a href="{% url 'owner_view_properties' landlord.id %}" class="nav-item {% block nav_view_assets %}{% endblock %}"><i class="fa-solid fa-eye"></i> View Properties</a>
+            <!--<a href="{% url 'owner_view_properties' landlord.id %}" class="nav-item {% block nav_view_assets %}{% endblock %}"><i class="fa-solid fa-eye"></i> View Properties</a>!-->
             <a href="{% url 'owner_tenant_details' landlord.id %}" class="nav-item {% block nav_tenants %}{% endblock %}"><i class="fa-solid fa-person"></i> Tenant Directory</a>
             <!--<a href="{% url 'owner_vault' landlord.id %}" class="nav-item {% block nav_vault %}{% endblock %}"><i class="fa-solid fa-shield-halved"></i> Digital Vault</a>!-->
             <a href="{% url 'owner_drive' landlord.id %}" class="nav-item {% block nav_drive %}{% endblock %}"><i class="fa-solid fa-cloud"></i> File Drive</a>
