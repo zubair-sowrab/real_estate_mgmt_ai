@@ -1271,6 +1271,12 @@ def owner_expenses(request, landlord_id):
     # The base query is strictly tied to the requested landlord ID
     base_qs = OwnerExpense.objects.filter(landlord=landlord)
 
+    # 🚀 NEW: Restrict to ONLY official properties in the Django database + General Expenses
+    allowed_towers = list(Property.objects.filter(owner=landlord).values_list('name', flat=True))
+    allowed_towers.append("General Expenses")
+
+    base_qs = base_qs.filter(tower_name__in=allowed_towers)
+
     # Grab Filter Variables
     date_from = request.GET.get('date_from', '').strip()
     date_to = request.GET.get('date_to', '').strip()
@@ -1278,7 +1284,7 @@ def owner_expenses(request, landlord_id):
     unit_filter = request.GET.get('unit', '').strip()
     search_query = request.GET.get('search', '').strip()
 
-    # 🚀 NEW: Auto-set dates to the current month if no filters are applied
+    # Auto-set dates to the current month if no filters are applied
     if not bool(request.GET):
         today = timezone.now().date()
         first_day_of_month = today.replace(day=1)
@@ -1299,6 +1305,8 @@ def owner_expenses(request, landlord_id):
             Q(narration__icontains=search_query) |
             Q(voucher_no__icontains=search_query)
         )
+
+
 
     # Group the Data Hierarchically
     expenses_hierarchy = defaultdict(lambda: defaultdict(list))
