@@ -5,6 +5,7 @@ import re
 from django.db.models import Avg, Count, Q, Sum
 from django.db.models.functions import TruncYear
 from django.utils import timezone
+import itertools
 from langchain.tools import tool
 
 from .models import (
@@ -389,17 +390,17 @@ def compare_portfolio_properties(landlord_id: int, property_names: str = None) -
     return "\n".join(results)
 
 
-
 @tool
-def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> str:
+def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None,
+                         date_to: Optional[str] = None) -> str:
     """
-    Retrieves exactly how much money was deposited (cleared), bounced, or replaced, ALONG WITH the detailed line-by-line voucher breakdown.
+    Retrieves exactly how much money was deposited (cleared), bounced, or replaced, ALONG WITH the detailed line-by-line voucher breakdown (including nested CROs).
     Supports 'exact_date' (YYYY-MM-DD) OR 'date_from' and 'date_to'.
     """
     landlord = Landlord.objects.filter(id=landlord_id).first()
     if not landlord: return "Landlord not found."
 
-    # 🚀 THE BULLETPROOF SHIELD: Exact clone of views.py logic
+    # 🚀 1. THE BULLETPROOF SHIELD
     pact_ll_id = str(landlord.pact_landlord_id).strip()
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
 
@@ -408,13 +409,11 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
     if '02' not in allowed_prefixes: allowed_prefixes.append('02')
     if '01' not in allowed_prefixes: allowed_prefixes.append('01')
 
-    # Rule 1: Allow ALL documents from their Primary Prefix (Rescues BRVs!)
     if primary_prefixes:
         final_query = Q(doc_prefix__in=primary_prefixes)
     else:
         final_query = Q(pk__in=[])
 
-    # Rule 2: Strict Building Match for shared prefixes
     building_query = Q(linked_property__owner=landlord)
     for p in Property.objects.filter(owner=landlord):
         core_name = p.name.replace('Bldg', '').replace('Building', '').replace('Tower', '').strip()
@@ -424,26 +423,18 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
 
     final_query |= (building_query & Q(doc_prefix__in=allowed_prefixes))
 
-    # 🚀 THE VAT EXCLUSION: Block internal tax receipts ('01', '03') just like the UI!
     vouchers = BankDeposit.objects.filter(final_query).exclude(doc_prefix__in=['01', '03']).distinct()
 
-    # Apply Date Filters
-    if exact_date:
-        vouchers = vouchers.filter(date=exact_date)
-        time_context = f"on {exact_date}"
-    else:
-        if date_from: vouchers = vouchers.filter(date__gte=date_from)
-        if date_to: vouchers = vouchers.filter(date__lte=date_to)
-        time_context = f"from {date_from or 'Start'} to {date_to or 'Today'}"
+    # 🚀 2. GRAB ALL HISTORY FOR PROPER CRO MATCHING BEFORE DATE FILTERING
+    all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
+    all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
+    unmatched_cros = all_cros.copy()
 
-    deposited_qs = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('-date'))
-    bounced_qs = list(vouchers.filter(doc_abbr='CBR').order_by('-date'))
-
-    # 🚀 BRV GROUPING: Group Cash BRVs on the same day together (just like the UI)
+    TOLERANCE = 10.0
     consolidated_deposits = []
     cash_brv_dict = {}
 
-    for d in deposited_qs:
+    for d in all_deposits:
         if d.doc_abbr == 'BRV':
             has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
             has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
@@ -469,40 +460,122 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
                 primary.voucher_no = " & ".join([b.voucher_no for b in brvs])
             consolidated_deposits.append(primary)
 
+    consolidated_deposits.sort(key=lambda x: x.date)
+
+    # 🚀 3. FIND THE MATCHING CROS
+    for d in consolidated_deposits:
+        d.linked_cros = []
+        if d.doc_abbr != 'BRV': continue
+
+        has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
+        has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
+        if has_cheque or has_date: continue
+
+        target = float(d.amount)
+        matched = False
+        valid_cros = sorted([c for c in unmatched_cros if c.date <= d.date and (d.date - c.date).days <= 14],
+                            key=lambda x: (x.date, x.id), reverse=True)
+
+        for cro in valid_cros:
+            if abs(float(cro.amount) - target) <= TOLERANCE:
+                d.linked_cros = [cro]
+                unmatched_cros.remove(cro)
+                matched = True
+                break
+        if matched: continue
+
+        for i in range(len(valid_cros)):
+            current_sum = 0.0
+            temp_match = []
+            for j in range(i, len(valid_cros)):
+                current_sum += float(valid_cros[j].amount)
+                temp_match.append(valid_cros[j])
+                if abs(current_sum - target) <= TOLERANCE:
+                    d.linked_cros = sorted(temp_match, key=lambda x: x.date)
+                    for m in temp_match: unmatched_cros.remove(m)
+                    matched = True
+                    break
+                elif current_sum > target + TOLERANCE:
+                    break
+            if matched: break
+        if matched: continue
+
+        if valid_cros:
+            recent_cros = valid_cros[:20]
+            combo_found = False
+            for r in range(2, min(7, len(recent_cros) + 1)):
+                for combo in itertools.combinations(recent_cros, r):
+                    if abs(sum(float(c.amount) for c in combo) - target) <= TOLERANCE:
+                        d.linked_cros = sorted(list(combo), key=lambda x: x.date)
+                        for m in combo: unmatched_cros.remove(m)
+                        combo_found = True
+                        break
+                if combo_found: break
+
     consolidated_deposits.sort(key=lambda x: x.date, reverse=True)
 
-    # Calculate Totals
-    deposited_total = sum(float(v.amount) for v in consolidated_deposits)
-    bounced_total = sum(float(v.amount) for v in bounced_qs)
+    # 🚀 4. NOW FILTER BY DATE (Preserves the matching done above!)
+    final_ui_list = []
+    time_context = "for requested dates"
+
+    if exact_date:
+        time_context = f"on {exact_date}"
+        for d in consolidated_deposits:
+            if str(d.date) == exact_date: final_ui_list.append(d)
+    else:
+        time_context = f"from {date_from or 'Start'} to {date_to or 'Today'}"
+        for d in consolidated_deposits:
+            keep = True
+            if date_from and str(d.date) < date_from: keep = False
+            if date_to and str(d.date) > date_to: keep = False
+            if keep: final_ui_list.append(d)
+
+    # 🚀 5. BUILD THE PERFECT RESPONSE TEXT
+    deposited_total = 0.0
+    bounced_total = 0.0
+    cleared_lines = []
+    bounced_lines = []
+
+    for v in final_ui_list:
+        if v.doc_abbr == 'CBR':
+            bounced_total += float(v.amount)
+            label = v.tenant or v.tower or v.narration or "Bounced Reversal"
+            chq = f" | CHQ: {v.cheque_no}" if v.cheque_no and v.cheque_no.lower() not in ['none', ''] else ""
+            bounced_lines.append(f"- **{v.voucher_no}** | AED {float(v.amount):,.2f} | {label}{chq}")
+        else:
+            deposited_total += float(v.amount)
+            label = v.tenant or v.tower or v.narration or "Bank Deposit"
+            chq = f" | CHQ: {v.cheque_no}" if v.cheque_no and v.cheque_no.lower() not in ['none', ''] else ""
+
+            # This attaches the missing "Included Cash Receipts"
+            cro_details = ""
+            if hasattr(v, 'linked_cros') and v.linked_cros:
+                cros = []
+                for cro in v.linked_cros:
+                    c_label = cro.tenant or cro.narration or ""
+                    cros.append(f"  * ↳ **{cro.voucher_no}** (AED {float(cro.amount):,.2f}) - {c_label}")
+                cro_details = "\n" + "\n".join(cros)
+
+            cleared_lines.append(f"- **{v.voucher_no}** | AED {float(v.amount):,.2f} | {label}{chq}{cro_details}")
 
     results = [
         f"**Cashflow Summary {time_context}:**",
         f"- **Deposited/Cleared:** AED {deposited_total:,.2f}",
         f"- **Bounced Vouchers:** AED {bounced_total:,.2f}",
-        f"- **Total Transactions Processed:** {len(consolidated_deposits) + len(bounced_qs)}\n",
-        "**Detailed Breakdown:**"
+        f"- **Total Transactions Processed:** {len(final_ui_list)}\n",
     ]
 
-    if consolidated_deposits:
-        results.append("\n*Cleared Deposits:*")
-        for v in consolidated_deposits[:20]:
-            tenant_label = v.tenant or v.tower or v.narration or "General Deposit"
-            results.append(
-                f"- {v.date.strftime('%Y-%m-%d')} | {v.voucher_no} | **AED {float(v.amount):,.2f}** | {tenant_label}")
+    if cleared_lines:
+        results.append("**✅ Cleared Deposits Breakdown:**")
+        results.extend(cleared_lines)
 
-    if bounced_qs:
-        results.append("\n*Bounced Cheques:*")
-        for v in bounced_qs[:20]:
-            tenant_label = v.tenant or v.tower or v.narration or "General Bounced"
-            results.append(
-                f"- {v.date.strftime('%Y-%m-%d')} | {v.voucher_no} | **AED {float(v.amount):,.2f}** | {tenant_label}")
+    if bounced_lines:
+        results.append("\n**🚨 Bounced Cheques Breakdown:**")
+        results.extend(bounced_lines)
 
     return "\n".join(results)
 
 
-# ========================================================================
-# 4. NAVIGATION & OTHERS
-# ========================================================================
 
 @tool
 def get_portal_navigation_guide() -> str:
