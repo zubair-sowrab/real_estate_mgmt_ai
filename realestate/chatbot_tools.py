@@ -233,31 +233,52 @@ def get_unit_rent_history(landlord_id: int, unit_number: str, property_name: str
     return "\n".join(results)
 
 
-# ========================================================================
-# 2. PORTFOLIO & TENANT HEALTH RANKINGS (THE "BEST/WORST" ENGINE)
-# ========================================================================
-
 @tool
 def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "worst", limit: int = 5) -> str:
     """
-    Ranks ALL current tenants across the entire portfolio to find the absolute 'best' or 'worst'.
-    Use this when the user asks 'who is my worst tenant', 'best tenants', 'who owes the most', etc.
-    Rank type must be 'best' or 'worst'.
+    Ranks ALL true current tenants across the entire portfolio to find the absolute 'best' or 'worst'.
     """
     today = timezone.now().date()
-    contracts = Contract.objects.filter(
-        unit__property_asset__owner_id=landlord_id,
-        status__in=['Active', 'Expired (Holdover)']
-    ).select_related('tenant', 'unit', 'unit__property_asset')
+    properties = Property.objects.filter(owner_id=landlord_id)
+
+    true_active_contracts = []
+
+    for p in properties:
+        exp_units, _, _, _ = get_property_expanded_stats(p)
+        sno_groups = {}
+        ghost_unit_ids = set()
+
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                sno = c.pact_costcenter_id
+                if sno and sno not in ['0', '1', 'None', '']:
+                    if sno not in sno_groups: sno_groups[sno] = []
+                    sno_groups[sno].append(eu)
+
+        for sno, eu_list in sno_groups.items():
+            if len(eu_list) > 1:
+                master_eu = max(eu_list, key=lambda x: len(x['original_unit'].unit_number))
+                for eu in eu_list:
+                    if eu != master_eu: ghost_unit_ids.add(eu['unit_number'])
+
+        for eu in exp_units:
+            if eu['unit_number'] in ghost_unit_ids: continue
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                true_active_contracts.append(c)
 
     tenant_scores = []
 
-    for c in contracts:
-        total_rent = float(c.comprehensive_rent_amount) or float(c.unit.base_rent)
+    for c in true_active_contracts:
+        ledgers = ContractLedger.objects.filter(contract=c)
+        total_debit = sum(float(l.amount) for l in ledgers if l.is_debit)
+        total_credit = sum(float(l.amount) for l in ledgers if not l.is_debit)
+        total_pdr = float(sum(col.amount for col in c.collections.filter(status='Pending PDC')))
+
+        total_rent = total_debit if total_debit > 0 else (float(c.comprehensive_rent_amount) or float(c.unit.base_rent))
         if total_rent == 0: continue
 
-        cleared = float(c.cleared_paid)
-        pdc = float(sum(col.amount for col in c.collections.filter(status='Pending PDC')))
         bounced_count = c.collections.filter(status='Bounced').count()
 
         time_pct, days_left, days_expired = 0, 0, 0
@@ -270,30 +291,30 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
                 days_expired = abs(days_left)
                 days_left = 0
 
-        cleared_pct = min(100, int((cleared / total_rent) * 100))
+        cleared_pct = min(100, int((total_credit / total_rent) * 100))
         expenses = float(OwnerExpense.objects.filter(
             landlord_id=landlord_id, unit_name=c.unit.unit_number, tower_name=c.unit.property_asset.name
         ).aggregate(total=Sum('amount'))['total'] or 0)
 
         # 🚀 THE HEALTH SCORING ALGORITHM
-        # Lower score = Worse Tenant. Higher score = Better Tenant.
         score = 100
-        score -= (bounced_count * 30)  # Heavy penalty for bounced cheques
-        score -= (days_expired * 2)  # Penalty for expired contracts
+        score -= (bounced_count * 30)
+        score -= (days_expired * 2)
 
-        # Payment Lag Penalty
         lag = time_pct - cleared_pct
-        if lag > 15 and (cleared + pdc) < total_rent * 0.95:
+        if lag > 15 and (total_credit + total_pdr) < total_rent * 0.95:
             score -= (lag * 1.5)
 
-        # Maintenance Cost Penalty
         exp_ratio = expenses / total_rent
         if exp_ratio > 0.10:
             score -= (exp_ratio * 100)
 
+        # 🚀 THE FIX: Sync issues exactly to the penalties so it never lies
         issues = []
         if bounced_count > 0: issues.append(f"{bounced_count} Bounced Cheque(s)")
-        if lag > 15: issues.append(f"Payments lag {lag}% behind time elapsed")
+        if days_expired > 0: issues.append(f"Expired {days_expired} days ago")
+        if lag > 15 and (total_credit + total_pdr) < total_rent * 0.95: issues.append(
+            f"Payments lag {lag}% behind time elapsed")
         if expenses > (total_rent * 0.15): issues.append(f"High maintenance (AED {expenses:,.0f})")
 
         tenant_scores.append({
@@ -306,14 +327,28 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
         })
 
     if rank_type.lower() == "worst":
-        sorted_tenants = sorted(tenant_scores, key=lambda x: x['score'])
-        title = f"🚨 **Top {limit} Most At-Risk/Worst Tenants in Portfolio:**"
+        # 🚀 THE FIX: Only include tenants who actually lost points (score < 100)
+        bad_tenants = [t for t in tenant_scores if t['score'] < 100]
+        sorted_tenants = sorted(bad_tenants, key=lambda x: x['score'])
+
+        if not sorted_tenants:
+            return "🎉 Excellent news! You currently have no 'At-Risk' or poorly performing tenants in your portfolio."
+
+        actual_limit = min(limit, len(sorted_tenants))
+        title = f"🚨 **Top {actual_limit} Most At-Risk/Worst Tenants in Portfolio:**"
     else:
-        sorted_tenants = sorted(tenant_scores, key=lambda x: x['score'], reverse=True)
-        title = f"🏆 **Top {limit} Best Performing Tenants in Portfolio:**"
+        # Best tenants list
+        good_tenants = [t for t in tenant_scores if t['score'] >= 100]
+        sorted_tenants = sorted(good_tenants, key=lambda x: x['score'], reverse=True)
+
+        if not sorted_tenants:
+            sorted_tenants = sorted(tenant_scores, key=lambda x: x['score'], reverse=True)
+
+        actual_limit = min(limit, len(sorted_tenants))
+        title = f"🏆 **Top {actual_limit} Best Performing Tenants in Portfolio:**"
 
     results = [title + "\n"]
-    for idx, t in enumerate(sorted_tenants[:limit]):
+    for idx, t in enumerate(sorted_tenants[:actual_limit]):
         results.append(
             f"{idx + 1}. **{t['name']}** [{t['unit']}]\n   - Rent: AED {t['rent']:,.2f} ({t['cleared_pct']}% Cleared)\n   - Justification: {t['issues']}")
 
