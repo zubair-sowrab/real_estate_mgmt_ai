@@ -544,19 +544,26 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
             bounced_lines.append(f"- **{v.voucher_no}** | AED {float(v.amount):,.2f} | {label}{chq}")
         else:
             deposited_total += float(v.amount)
-            label = v.tenant or v.tower or v.narration or "Bank Deposit"
             chq = f" | CHQ: {v.cheque_no}" if v.cheque_no and v.cheque_no.lower() not in ['none', ''] else ""
 
-            # This attaches the missing "Included Cash Receipts"
+            # 🚀 THE FIX: Completely block narrations/remarks for BRV
+            if v.doc_abbr == 'BRV':
+                label = v.tenant or v.tower or ""
+            else:
+                label = v.tenant or v.tower or v.narration or "Bank Deposit"
+
+            label_text = f" | {label}" if label else ""
+
             cro_details = ""
             if hasattr(v, 'linked_cros') and v.linked_cros:
                 cros = []
                 for cro in v.linked_cros:
                     c_label = cro.tenant or cro.narration or ""
-                    cros.append(f"  * ↳ **{cro.voucher_no}** (AED {float(cro.amount):,.2f}) - {c_label}")
+                    c_label_text = f" - {c_label}" if c_label else ""
+                    cros.append(f"  * ↳ **{cro.voucher_no}** (AED {float(cro.amount):,.2f}){c_label_text}")
                 cro_details = "\n" + "\n".join(cros)
 
-            cleared_lines.append(f"- **{v.voucher_no}** | AED {float(v.amount):,.2f} | {label}{chq}{cro_details}")
+            cleared_lines.append(f"- **{v.voucher_no}** | AED {float(v.amount):,.2f}{label_text}{chq}{cro_details}")
 
     results = [
         f"**Cashflow Summary {time_context}:**",
