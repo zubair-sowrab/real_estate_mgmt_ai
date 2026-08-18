@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 {% load static %}
 <html lang="en">
@@ -8,6 +7,10 @@
     <title>{% block title %}Edrak Portal{% endblock %}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Added marked.js to beautifully render the AI's markdown responses -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <style>
         :root {
             --primary-gold: #D4AF37;
@@ -59,13 +62,11 @@
             border-bottom: 1px solid rgba(255,255,255,0.05);
         }
 
-
-
-.logo {
-    width: 30px;   /* Adjust as needed */
-    height: 60px;
-    object-fit: contain;
-}
+        .logo {
+            width: 30px; 
+            height: 60px;
+            object-fit: contain;
+        }
 
         .nav-menu { padding: 20px 0; flex: 1; overflow-y: auto;}
 
@@ -152,6 +153,154 @@
         .mobile-menu-btn { display: none; }
         .sidebar-overlay { display: none; }
 
+        /* ========================================================= */
+        /* AI CHATBOT STYLES */
+        /* ========================================================= */
+        .chat-toggle-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: var(--primary-gold);
+            color: var(--dark-sidebar);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 50px;
+            font-family: inherit;
+            font-weight: 700;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 1000;
+            transition: transform 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-toggle-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .chat-window {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            width: 380px;
+            height: 500px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            overflow: hidden;
+            border: 1px solid var(--border-light);
+        }
+
+        .chat-window.hidden {
+            display: none;
+        }
+
+        .chat-header {
+            background-color: var(--dark-sidebar);
+            color: var(--primary-gold);
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-header h3 {
+            margin: 0;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .chat-header button {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            background-color: var(--app-bg);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .message {
+            padding: 10px 14px;
+            border-radius: 8px;
+            max-width: 85%;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+        
+        .message p {
+            margin-bottom: 8px;
+        }
+        .message p:last-child {
+            margin-bottom: 0;
+        }
+        .message ul {
+            margin-left: 20px;
+            margin-bottom: 8px;
+        }
+
+        .ai-message {
+            background-color: white;
+            color: var(--text-main);
+            align-self: flex-start;
+            border: 1px solid var(--border-light);
+            border-bottom-left-radius: 2px;
+        }
+
+        .user-message {
+            background-color: var(--primary-gold);
+            color: var(--dark-sidebar);
+            align-self: flex-end;
+            font-weight: 500;
+            border-bottom-right-radius: 2px;
+        }
+
+        .chat-input-area {
+            display: flex;
+            padding: 15px;
+            border-top: 1px solid var(--border-light);
+            background: white;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid var(--border-light);
+            border-radius: 6px;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .chat-input-area input:focus {
+            border-color: var(--primary-gold);
+        }
+
+        .chat-input-area button {
+            background-color: var(--dark-sidebar);
+            color: var(--primary-gold);
+            border: none;
+            padding: 0 15px;
+            margin-left: 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
         @media (max-width: 768px) {
             .sidebar { position: fixed; top: 0; left: 0; height: 100%; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
             .sidebar.active { transform: translateX(0); }
@@ -159,58 +308,43 @@
             .header { justify-content: space-between; padding: 0 20px; }
             .mobile-menu-btn { display: block; font-size: 1.5rem; color: var(--text-main); cursor: pointer; background: none; border: none; }
             .content { padding: 20px; }
+            
+            .chat-window {
+                width: calc(100% - 40px);
+                height: 60vh;
+            }
         }
 
         {% block extra_css %}{% endblock %}
     </style>
 
-<link rel="icon" type="image/png" href="{% static 'images/logo.png' %}">
-
+    <link rel="icon" type="image/png" href="{% static 'images/logo.png' %}">
 </head>
 <body>
 
     <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
     <div class="sidebar" id="sidebar">
-       <div class="logo-area">
-<img src="{% static 'images/logo.png' %}" alt="EDRAK Portal Logo" class="logo">
-           <div>EDRAK PORTAL</div>
-</div>
+        <div class="logo-area">
+            <img src="{% static 'images/logo.png' %}" alt="EDRAK Portal Logo" class="logo">
+            <div>EDRAK PORTAL</div>
+        </div>
 
         <div class="nav-menu">
-                           <div class="nav-item" id="google_translate_element" style="margin-right: 15px; display: inline-block;"></div>
+            <div class="nav-item" id="google_translate_element" style="margin-right: 15px; display: inline-block;"></div>
 
             <a href="{% url 'owner_dashboard' landlord.id %}" class="nav-item {% block nav_dash %}{% endblock %}"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
-            <!--<a href="{% url 'owner_properties' landlord.id %}" class="nav-item {% block nav_assets %}{% endblock %}"><i class="fa-solid fa-building"></i> Asset Management</a>-->
-            <!--<a href="{% url 'owner_view_properties' landlord.id %}" class="nav-item {% block nav_view_assets %}{% endblock %}"><i class="fa-solid fa-eye"></i> View Properties</a>!-->
             <a href="{% url 'owner_tenant_details' landlord.id %}" class="nav-item {% block nav_tenants %}{% endblock %}"><i class="fa-solid fa-person"></i> Tenant Directory</a>
-            <!--<a href="{% url 'owner_vault' landlord.id %}" class="nav-item {% block nav_vault %}{% endblock %}"><i class="fa-solid fa-shield-halved"></i> Digital Vault</a>!-->
             <a href="{% url 'owner_drive' landlord.id %}" class="nav-item {% block nav_drive %}{% endblock %}"><i class="fa-solid fa-cloud"></i> File Drive</a>
-                        <a href="{% url 'owner_reports' landlord.id %}" class="nav-item {% block nav_owner_reports %}{% endblock %}"><i class="fa-solid fa-gear"></i>Reports</a>
-<a href="{% url 'owner_occupancy_status' landlord.id %}" class="nav-item">
+            <a href="{% url 'owner_reports' landlord.id %}" class="nav-item {% block nav_owner_reports %}{% endblock %}"><i class="fa-solid fa-gear"></i>Reports</a>
+            <a href="{% url 'owner_occupancy_status' landlord.id %}" class="nav-item"><i class="fa-solid fa-door-open"></i> Occupancy & Rent</a>
+            <a href="{% url 'owner_expenses' landlord.id %}" class="nav-item"><i class="fa-solid fa-money-bill-wave"></i> Expenses</a>
+            <a href="{% url 'tenant_health' landlord.id %}" class="nav-item"><i class="fa-solid fa-heart-pulse"></i> Tenant Health</a>
 
-    <i class="fa-solid fa-door-open"></i> Occupancy & Rent
-</a>
-
-<a href="{% url 'owner_expenses' landlord.id %}" class="nav-item">
-
-    <i class="fa-solid fa-money-bill-wave"></i> Expenses
-</a>
-
-
-            <a href="{% url 'tenant_health' landlord.id %}" class="nav-item">
-
-    <i class="fa-solid fa-heart-pulse"></i> Tenant Health
-</a>
-
-
-        {% if request.user.is_superuser %}
-<a href="{% url 'admin_dashboard' %}" class="nav-item">
-    <i class="fa-solid fa-list"></i> Select Owner
-</a>
-{% endif %}
-                  <a href="{% url 'logout' %}" class="nav-item"><i class="fa-danger fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
-
+            {% if request.user.is_superuser %}
+            <a href="{% url 'admin_dashboard' %}" class="nav-item"><i class="fa-solid fa-list"></i> Select Owner</a>
+            {% endif %}
+            <a href="{% url 'logout' %}" class="nav-item"><i class="fa-danger fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
         </div>
     </div>
 
@@ -221,17 +355,9 @@
             </button>
             <div style="flex: 1;"></div>
             <div class="user-profile">
-
-
-
-
-
-
-
-    <span>{{ landlord.name }}</span>
-    <div class="avatar">{{ landlord.name|make_list|first }}</div>
-</div>
-
+                <span>{{ landlord.name }}</span>
+                <div class="avatar">{{ landlord.name|make_list|first }}</div>
+            </div>
         </div>
 
         <div class="content">
@@ -239,119 +365,231 @@
         </div>
     </div>
 
+    <!-- ========================================================= -->
+    <!-- AI CHATBOT HTML -->
+    <!-- ========================================================= -->
+    <button id="ai-chat-btn" class="chat-toggle-btn">
+        <i class="fa-solid fa-robot"></i> Ask AI Assistant
+    </button>
+
+    <div id="ai-chat-window" class="chat-window hidden">
+        <div class="chat-header">
+            <h3><i class="fa-solid fa-robot"></i> YBN Portal Assistant</h3>
+            <button id="close-chat-btn">&times;</button>
+        </div>
+        
+        <div id="chat-messages" class="chat-messages">
+            <div class="message ai-message">
+                Hello <strong>{{ landlord.name }}</strong>! I can help you analyze tenant performance, check vacant units, track maintenance expenses, and navigate the portal. How can I assist you today?
+            </div>
+        </div>
+        
+        <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="Ask about buildings, tenants, expenses..." autocomplete="off" />
+            <button id="send-chat-btn"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+    </div>
+
     <script>
+        // Existing Sidebar Logic
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('active');
             document.getElementById('sidebarOverlay').classList.toggle('active');
         }
 
-// Smart Back-Button Handling: Force a reload if loaded from the browser's history cache
-window.addEventListener('pageshow', function (event) {
-    if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
-        window.location.reload();
-    }
-});
-
-
-// Toggle Notification Dropdown Box
-const bellBtn = document.getElementById('notificationBell');
-const dropdownBox = document.getElementById('notificationDropdown');
-if (bellBtn && dropdownBox) {
-    bellBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        dropdownBox.style.display = dropdownBox.style.display === 'none' ? 'block' : 'none';
-    });
-    document.addEventListener('click', function() {
-        dropdownBox.style.display = 'none';
-    });
-}
-    </script>
-    {% block extra_js %}{% endblock %}
-
-
-
-
-
-
-
-<script type="text/javascript">
-function googleTranslateElementInit() {
-    new google.translate.TranslateElement({
-        pageLanguage: 'en',
-        includedLanguages: 'en,ar', // Only English and Arabic
-        layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
-        autoDisplay: false
-    }, 'google_translate_element');
-}
-
-
-// Google's script aggressively applies a 'top: 40px' to the body tag.
-    // This observer watches the body tag and instantly removes that styling if Google tries to add it.
-    const bodyObserver = new MutationObserver(function(mutations) {
-        mutations.forEach(function(mutation) {
-            if (mutation.attributeName === "style") {
-                if (document.body.style.top === "40px" || document.body.style.top === "39px") {
-                    document.body.style.top = "0px";
-                }
+        // Smart Back-Button Handling
+        window.addEventListener('pageshow', function (event) {
+            if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+                window.location.reload();
             }
         });
-    });
 
-    // Start watching the body tag for style changes
-    bodyObserver.observe(document.body, { attributes: true });
-</script>
-<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+        // Notification Dropdown
+        const bellBtn = document.getElementById('notificationBell');
+        const dropdownBox = document.getElementById('notificationDropdown');
+        if (bellBtn && dropdownBox) {
+            bellBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                dropdownBox.style.display = dropdownBox.style.display === 'none' ? 'block' : 'none';
+            });
+            document.addEventListener('click', function() {
+                dropdownBox.style.display = 'none';
+            });
+        }
 
-<!-- Optional CSS fix in case the Google styling messes up your header height -->
-<style>
-    .goog-te-gadget-simple {
-        border-radius: 6px !important;
-        padding: 4px 8px !important;
-        border: 1px solid var(--border-light) !important;
-    }
-    .goog-te-banner-frame {
-        display: none !important;
-    }
-    body {
-        top: 0px !important;
-    }
+        // =========================================================
+        // AI CHATBOT JAVASCRIPT ENGINE
+        // =========================================================
+        document.addEventListener('DOMContentLoaded', function() {
+            const chatBtn = document.getElementById('ai-chat-btn');
+            const closeBtn = document.getElementById('close-chat-btn');
+            const chatWindow = document.getElementById('ai-chat-window');
+            const sendBtn = document.getElementById('send-chat-btn');
+            const chatInput = document.getElementById('chat-input');
+            const chatMessages = document.getElementById('chat-messages');
 
+            // Django CSRF Token Helper
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
 
+            // Toggle Chat Window
+            chatBtn.addEventListener('click', () => {
+                chatWindow.classList.remove('hidden');
+                chatInput.focus();
+            });
+            closeBtn.addEventListener('click', () => chatWindow.classList.add('hidden'));
 
+            // Allow pressing 'Enter' to send
+            chatInput.addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') sendBtn.click();
+            });
 
+// 🚀 NEW: The Chatbot's Short-Term Memory
+            let chatHistory = [];
 
-    .goog-te-banner-frame.skiptranslate {
-        display: none !important;
-    }
-    /* Hide the new banner class (Google updated this recently) */
-    .VIpgJd-ZVi9od-ORHb-OEVmcd {
-        display: none !important;
-    }
-    /* Hide the iframe wrapper completely */
-    .skiptranslate > iframe {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    /* Force body and html back to the top */
-    html, body {
-        top: 0px !important;
-        margin-top: 0px !important;
-        position: static !important;
-    }
-    /* Hide tooltips */
-    .goog-tooltip {
-        display: none !important;
-    }
-    .goog-tooltip:hover {
-        display: none !important;
-    }
-    .goog-text-highlight {
-        background-color: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-    }
-</style>
+            sendBtn.addEventListener('click', async function() {
+                const message = chatInput.value.trim();
+                if (!message) return;
+
+                // 1. Display User Message
+                appendMessage(message, 'user-message');
+                chatInput.value = '';
+
+                // 2. Display "Typing..." Indicator
+                const typingId = 'typing-' + Date.now();
+                appendMessage('<i class="fa-solid fa-circle-notch fa-spin"></i> Analyzing...', 'ai-message', typingId);
+
+                // 3. Send to Django Backend (Now including the history!)
+                try {
+                    const response = await fetch('/api/chatbot/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken')
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            landlord_id: "{{ landlord.id }}",
+                            history: chatHistory  // 🚀 Sending the memory to the brain
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    // Remove typing indicator
+                    document.getElementById(typingId).remove();
+
+                    if (response.ok) {
+                        let formattedReply = marked.parse(data.reply);
+                        appendMessage(formattedReply, 'ai-message');
+
+                        // 🚀 Save this exchange to memory for the next question!
+                        chatHistory.push({ role: 'user', content: message });
+                        chatHistory.push({ role: 'assistant', content: data.reply });
+
+                        // Keep memory light (only remember the last 10 messages so we don't overload the AI)
+                        if (chatHistory.length > 10) {
+                            chatHistory = chatHistory.slice(chatHistory.length - 10);
+                        }
+
+                    } else {
+                        appendMessage('Error: ' + (data.error || 'Something went wrong.'), 'ai-message');
+                    }
+                } catch (error) {
+                    document.getElementById(typingId).remove();
+                    appendMessage('Connection error. Please try again.', 'ai-message');
+                }
+            });
+
+            function appendMessage(text, className, id = null) {
+                const msgDiv = document.createElement('div');
+                msgDiv.className = `message ${className}`;
+                if (id) msgDiv.id = id;
+                msgDiv.innerHTML = text;
+                chatMessages.appendChild(msgDiv);
+                chatMessages.scrollTop = chatMessages.scrollHeight; // Auto-scroll to bottom
+            }
+        });
+    </script>
+    
+    {% block extra_js %}{% endblock %}
+
+    <!-- Existing Google Translate Logic -->
+    <script type="text/javascript">
+        function googleTranslateElementInit() {
+            new google.translate.TranslateElement({
+                pageLanguage: 'en',
+                includedLanguages: 'en,ar',
+                layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+                autoDisplay: false
+            }, 'google_translate_element');
+        }
+
+        const bodyObserver = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.attributeName === "style") {
+                    if (document.body.style.top === "40px" || document.body.style.top === "39px") {
+                        document.body.style.top = "0px";
+                    }
+                }
+            });
+        });
+
+        bodyObserver.observe(document.body, { attributes: true });
+    </script>
+    <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
+    <style>
+        .goog-te-gadget-simple {
+            border-radius: 6px !important;
+            padding: 4px 8px !important;
+            border: 1px solid var(--border-light) !important;
+        }
+        .goog-te-banner-frame {
+            display: none !important;
+        }
+        body {
+            top: 0px !important;
+        }
+        .goog-te-banner-frame.skiptranslate {
+            display: none !important;
+        }
+        .VIpgJd-ZVi9od-ORHb-OEVmcd {
+            display: none !important;
+        }
+        .skiptranslate > iframe {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        html, body {
+            top: 0px !important;
+            margin-top: 0px !important;
+            position: static !important;
+        }
+        .goog-tooltip {
+            display: none !important;
+        }
+        .goog-tooltip:hover {
+            display: none !important;
+        }
+        .goog-text-highlight {
+            background-color: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+        }
+    </style>
 
 </body>
 </html>
-

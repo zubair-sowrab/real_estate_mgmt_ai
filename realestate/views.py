@@ -1686,3 +1686,66 @@ def tenant_health(request, landlord_id):
         'notifications': get_dynamic_notifications(landlord),
         'notif_count': len(get_dynamic_notifications(landlord))
     })
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from .chatbot_agent import chatbot_agent
+
+
+class ChatbotAPIView(APIView):
+    # Ensure only logged-in users can ping the AI
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user_message = request.data.get("message")
+        requested_landlord_id = request.data.get("landlord_id")
+        chat_history = request.data.get("history", [])  # 🚀 Grab the memory array
+
+        if not user_message:
+            return Response({"error": "Message is required"}, status=400)
+
+        if not requested_landlord_id:
+            return Response({"error": "Landlord context is missing."}, status=400)
+
+        # 1. THE SECURITY SHIELD
+        if not request.user.is_superuser:
+            try:
+                if str(request.user.landlord_profile.id) != str(requested_landlord_id):
+                    return Response({"error": "Security Violation: Unauthorized."}, status=403)
+            except AttributeError:
+                return Response({"error": "Security Violation: User is not linked to a landlord profile."}, status=403)
+
+        # 2. BUILD THE CONVERSATION THREAD
+        formatted_messages = []
+
+        # Load the previous context first
+        for msg in chat_history:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ['user', 'assistant'] and content:
+                formatted_messages.append((role, content))
+
+        # 3. THE INJECTION: Securely wrap the *newest* message with the landlord ID
+        secure_prompt = (
+            f"System Note: The authenticated user's landlord_id is {requested_landlord_id}. "
+            f"You MUST use this for all tool calls.\n\n"
+            f"User Message: {user_message}"
+        )
+
+        # Add the newest secure prompt to the bottom of the stack
+        formatted_messages.append(("user", secure_prompt))
+
+        # 4. EXECUTE THE AGENT
+        try:
+            # Pass the entire conversation history instead of just one message
+            response_data = chatbot_agent.invoke({
+                "messages": formatted_messages
+            })
+
+            final_reply = response_data["messages"][-1].content
+            return Response({"reply": final_reply})
+
+        except Exception as e:
+            return Response({"error": f"Agent encountered an error: {str(e)}"}, status=500)
