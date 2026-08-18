@@ -180,15 +180,15 @@
             transform: translateY(-2px);
         }
 
-        .chat-window {
+       .chat-window {
             position: fixed;
             bottom: 80px;
             right: 20px;
-            width: 380px;
-            height: 500px;
+            width: 450px; /* Increased from 380px */
+            height: 650px; /* Increased from 500px */
             background: white;
             border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
             display: flex;
             flex-direction: column;
             z-index: 1000;
@@ -199,6 +199,8 @@
         .chat-window.hidden {
             display: none;
         }
+
+
 
         .chat-header {
             background-color: var(--dark-sidebar);
@@ -235,12 +237,37 @@
             gap: 10px;
         }
 
-        .message {
-            padding: 10px 14px;
+      .message {
+            padding: 12px 16px;
             border-radius: 8px;
-            max-width: 85%;
+            max-width: 90%;
             font-size: 14px;
             line-height: 1.5;
+
+            /* 🚀 THE UI FIX: Stop messages from squishing and adding inner scrollbars */
+            flex-shrink: 0;
+            overflow-x: auto;
+            overflow-y: hidden;
+
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            white-space: normal;
+        }
+
+        /* 🚀 FIX: Stop Markdown Headers from rendering massively */
+       .message h1, .message h2, .message h3, .message h4 {
+            font-size: 15px !important;
+            font-weight: 700;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            color: var(--text-main);
+        }
+
+        .message table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 5px;
+            font-size: 13px;
         }
         
         .message p {
