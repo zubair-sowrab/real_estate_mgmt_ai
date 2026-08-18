@@ -1,5 +1,6 @@
 import difflib
 from datetime import datetime, timedelta
+from typing import Optional
 import re
 from django.db.models import Avg, Count, Q, Sum
 from django.db.models.functions import TruncYear
@@ -388,20 +389,45 @@ def compare_portfolio_properties(landlord_id: int, property_names: str = None) -
     return "\n".join(results)
 
 
-# ========================================================================
-# 3. CASHFLOW & EXACT DATE FILTERS
-# ========================================================================
 
 @tool
-def get_cashflow_summary(landlord_id: int, exact_date: str = None, date_from: str = None, date_to: str = None) -> str:
+def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> str:
     """
-    Retrieves exactly how much money was deposited (cleared), bounced, or replaced.
+    Retrieves exactly how much money was deposited (cleared), bounced, or replaced, ALONG WITH the detailed line-by-line voucher breakdown.
     Supports 'exact_date' (YYYY-MM-DD) OR 'date_from' and 'date_to'.
     """
     landlord = Landlord.objects.filter(id=landlord_id).first()
-    vouchers = BankDeposit.objects.filter(Q(linked_landlord=landlord) | Q(linked_property__owner=landlord))
+    if not landlord: return "Landlord not found."
 
-    # 🚀 EXACT DATE PRECISION
+    # 🚀 THE BULLETPROOF SHIELD: Exact clone of views.py logic
+    pact_ll_id = str(landlord.pact_landlord_id).strip()
+    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+
+    primary_prefixes = prefix_map.get(pact_ll_id, [])
+    allowed_prefixes = list(primary_prefixes)
+    if '02' not in allowed_prefixes: allowed_prefixes.append('02')
+    if '01' not in allowed_prefixes: allowed_prefixes.append('01')
+
+    # Rule 1: Allow ALL documents from their Primary Prefix (Rescues BRVs!)
+    if primary_prefixes:
+        final_query = Q(doc_prefix__in=primary_prefixes)
+    else:
+        final_query = Q(pk__in=[])
+
+    # Rule 2: Strict Building Match for shared prefixes
+    building_query = Q(linked_property__owner=landlord)
+    for p in Property.objects.filter(owner=landlord):
+        core_name = p.name.replace('Bldg', '').replace('Building', '').replace('Tower', '').strip()
+        if core_name and len(core_name) > 3:
+            building_query |= Q(tower__icontains=core_name)
+            building_query |= Q(narration__icontains=core_name)
+
+    final_query |= (building_query & Q(doc_prefix__in=allowed_prefixes))
+
+    # 🚀 THE VAT EXCLUSION: Block internal tax receipts ('01', '03') just like the UI!
+    vouchers = BankDeposit.objects.filter(final_query).exclude(doc_prefix__in=['01', '03']).distinct()
+
+    # Apply Date Filters
     if exact_date:
         vouchers = vouchers.filter(date=exact_date)
         time_context = f"on {exact_date}"
@@ -410,15 +436,68 @@ def get_cashflow_summary(landlord_id: int, exact_date: str = None, date_from: st
         if date_to: vouchers = vouchers.filter(date__lte=date_to)
         time_context = f"from {date_from or 'Start'} to {date_to or 'Today'}"
 
-    deposited = vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).aggregate(total=Sum('amount'))['total'] or 0.0
-    bounced = vouchers.filter(doc_abbr='CBR').aggregate(total=Sum('amount'))['total'] or 0.0
+    deposited_qs = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM']).order_by('-date'))
+    bounced_qs = list(vouchers.filter(doc_abbr='CBR').order_by('-date'))
 
-    return (
-        f"**Cashflow Summary {time_context}:**\n"
-        f"- **Successfully Deposited/Cleared:** AED {float(deposited):,.2f}\n"
-        f"- **Bounced Vouchers:** AED {float(bounced):,.2f}\n"
-        f"- **Total Transactions Processed:** {vouchers.count()}"
-    )
+    # 🚀 BRV GROUPING: Group Cash BRVs on the same day together (just like the UI)
+    consolidated_deposits = []
+    cash_brv_dict = {}
+
+    for d in deposited_qs:
+        if d.doc_abbr == 'BRV':
+            has_cheque = bool(d.cheque_no and str(d.cheque_no).strip().lower() not in ['none', ''])
+            has_date = bool(d.cheque_date and str(d.cheque_date).strip().lower() not in ['none', ''])
+            if has_cheque or has_date:
+                consolidated_deposits.append(d)
+            else:
+                if d.date not in cash_brv_dict: cash_brv_dict[d.date] = []
+                cash_brv_dict[d.date].append(d)
+        else:
+            consolidated_deposits.append(d)
+
+    for dt, brvs in cash_brv_dict.items():
+        if len(brvs) == 1:
+            consolidated_deposits.append(brvs[0])
+        else:
+            primary = brvs[0]
+            primary.amount = sum(float(b.amount) for b in brvs)
+            if '/' in primary.voucher_no:
+                prefix = primary.voucher_no.rsplit('/', 1)[0] + '/'
+                suffixes = [b.voucher_no.rsplit('/', 1)[-1] for b in brvs if '/' in b.voucher_no]
+                primary.voucher_no = f"{prefix}{' & '.join(suffixes)}"
+            else:
+                primary.voucher_no = " & ".join([b.voucher_no for b in brvs])
+            consolidated_deposits.append(primary)
+
+    consolidated_deposits.sort(key=lambda x: x.date, reverse=True)
+
+    # Calculate Totals
+    deposited_total = sum(float(v.amount) for v in consolidated_deposits)
+    bounced_total = sum(float(v.amount) for v in bounced_qs)
+
+    results = [
+        f"**Cashflow Summary {time_context}:**",
+        f"- **Deposited/Cleared:** AED {deposited_total:,.2f}",
+        f"- **Bounced Vouchers:** AED {bounced_total:,.2f}",
+        f"- **Total Transactions Processed:** {len(consolidated_deposits) + len(bounced_qs)}\n",
+        "**Detailed Breakdown:**"
+    ]
+
+    if consolidated_deposits:
+        results.append("\n*Cleared Deposits:*")
+        for v in consolidated_deposits[:20]:
+            tenant_label = v.tenant or v.tower or v.narration or "General Deposit"
+            results.append(
+                f"- {v.date.strftime('%Y-%m-%d')} | {v.voucher_no} | **AED {float(v.amount):,.2f}** | {tenant_label}")
+
+    if bounced_qs:
+        results.append("\n*Bounced Cheques:*")
+        for v in bounced_qs[:20]:
+            tenant_label = v.tenant or v.tower or v.narration or "General Bounced"
+            results.append(
+                f"- {v.date.strftime('%Y-%m-%d')} | {v.voucher_no} | **AED {float(v.amount):,.2f}** | {tenant_label}")
+
+    return "\n".join(results)
 
 
 # ========================================================================

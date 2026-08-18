@@ -4,6 +4,8 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models.functions import TruncMonth, TruncYear
 import re
+from django.utils import timezone
+
 import itertools
 from datetime import datetime
 from dotenv import load_dotenv
@@ -1728,9 +1730,16 @@ class ChatbotAPIView(APIView):
                 formatted_messages.append((role, content))
 
         # 3. THE INJECTION: Securely wrap the *newest* message with the landlord ID
+        # 3. THE INJECTION: Securely wrap the *newest* message with the landlord ID and Current Time
+
+        current_date = timezone.now().strftime("%Y-%m-%d")
+        current_year = timezone.now().year
+
         secure_prompt = (
             f"System Note: The authenticated user's landlord_id is {requested_landlord_id}. "
-            f"You MUST use this for all tool calls.\n\n"
+            f"The current system date is {current_date}. If the user mentions 'today', 'yesterday', "
+            f"or a month/day without a year, ALWAYS assume they mean the current year ({current_year}). "
+            f"You MUST use this landlord_id for all tool calls.\n\n"
             f"User Message: {user_message}"
         )
 
