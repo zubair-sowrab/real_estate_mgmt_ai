@@ -180,12 +180,16 @@
             transform: translateY(-2px);
         }
 
-       .chat-window {
+     .chat-window {
             position: fixed;
             bottom: 80px;
             right: 20px;
-            width: 450px; /* Increased from 380px */
-            height: 650px; /* Increased from 500px */
+            width: 450px;
+
+            /* 🚀 THE FIX: Use a safe default height, but NEVER exceed the screen size */
+            height: 600px;
+            max-height: calc(100vh - 120px);
+
             background: white;
             border-radius: 12px;
             box-shadow: 0 8px 30px rgba(0,0,0,0.25);
@@ -336,10 +340,7 @@
             .mobile-menu-btn { display: block; font-size: 1.5rem; color: var(--text-main); cursor: pointer; background: none; border: none; }
             .content { padding: 20px; }
             
-            .chat-window {
-                width: calc(100% - 40px);
-                height: 60vh;
-            }
+
         }
 
         {% block extra_css %}{% endblock %}
