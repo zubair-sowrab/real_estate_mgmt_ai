@@ -690,7 +690,7 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
                 matched_prop = p
                 break
 
-        # 2. 🚀 THE FIX: Use Python's built-in fuzzy matcher to catch "Mohammed" vs "Muhammed"
+        # 2. Use Python's built-in fuzzy matcher to catch typos
         if not matched_prop:
             close_matches = difflib.get_close_matches(search_lower, prop_map.keys(), n=1, cutoff=0.5)
             if close_matches:
@@ -699,39 +699,108 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
         if matched_prop:
             properties = [matched_prop]
         else:
-            # Provide a helpful fallback list if the spelling is completely destroyed
             available = ", ".join([p.name for p in properties])
             return f"Could not find a building matching '{property_name}'. Available properties are: {available}"
 
     results = []
+
     for p in properties:
+        # 🚀 STEP 1: Unit Normalization & Latest Contract Check
         units = p.units.all()
-        vacant_units = []
+        expanded_dict = {}
 
         for u in units:
             if '-' not in u.unit_number:
                 continue
 
-            contracts = list(u.contracts.all())
-            is_occupied = False
-            last_tenant = "None"
+            clean_name = u.unit_number.split(':')[0].strip()
+            if ',' in clean_name:
+                split_units = sorted([x.strip() for x in clean_name.split(',')])
+                clean_name = ','.join(split_units)
 
-            if contracts:
-                # Find the absolute newest contract for this specific physical unit
-                latest_c = max(contracts, key=lambda c: (c.start_date, c.end_date))
-                if latest_c.tenant:
-                    last_tenant = latest_c.tenant.full_name
+            if clean_name not in expanded_dict:
+                expanded_dict[clean_name] = {
+                    'unit_number': clean_name, 'is_occupied': False, 'tenant': None,
+                    'original_unit': u, 'all_contracts': []
+                }
+            expanded_dict[clean_name]['all_contracts'].extend(list(u.contracts.all()))
 
-                # UI Logic: If it is not Terminated or Closed, it is considered occupied
-                if latest_c.status not in ['Terminated', 'Closed']:
-                    is_occupied = True
+        for sub, data in expanded_dict.items():
+            if not data['all_contracts']:
+                data['latest_contract'] = None
+                continue
 
-            # Double check against the physical unit status updated by PACT sync
-            if not is_occupied or u.status == 'Vacant':
-                vacant_units.append(f"- **{u.unit_number}** (Last Tenant: {last_tenant})")
+            newest_contract = max(data['all_contracts'], key=lambda c: (c.start_date, c.end_date))
+            data['latest_contract'] = newest_contract
+
+            if newest_contract.status not in ['Terminated', 'Closed']:
+                data['is_occupied'] = True
+                data['tenant'] = newest_contract.tenant
+
+        exp_units = list(expanded_dict.values())
+
+        # 🚀 STEP 2: The Shattered Lease Deduplicator (Cost Center ID Check)
+        sno_groups = {}
+        ghost_unit_ids = set()
+
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                sno = c.pact_costcenter_id
+                if sno and sno not in ['0', '1', 'None', '']:
+                    if sno not in sno_groups:
+                        sno_groups[sno] = []
+                    sno_groups[sno].append(eu)
+
+        for sno, eu_list in sno_groups.items():
+            if len(eu_list) > 1:
+                master_eu = max(eu_list, key=lambda x: len(x['original_unit'].unit_number))
+                for eu in eu_list:
+                    if eu != master_eu:
+                        ghost_unit_ids.add(eu['unit_number'])
+
+        exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
+
+        # 🚀 STEP 3: The Physical Space Deduplicator (Sub-Unit Check)
+        occupied_base_units = set()
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            if c and c.status in ['Active', 'Expired (Holdover)']:
+                for su in [u.strip() for u in eu['unit_number'].split(',')]:
+                    occupied_base_units.add(su)
+
+        all_standalone_units = set(eu['unit_number'].strip() for eu in exp_units if ',' not in eu['unit_number'])
+
+        physical_ghost_ids = set()
+        for eu in exp_units:
+            c = eu.get('latest_contract')
+            is_occupied = c and c.status in ['Active', 'Expired (Holdover)']
+            sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+
+            if not is_occupied:
+                if any(su in occupied_base_units for su in sub_units):
+                    physical_ghost_ids.add(eu['unit_number'])
+                elif len(sub_units) > 1 and all(su in all_standalone_units for su in sub_units):
+                    physical_ghost_ids.add(eu['unit_number'])
+
+        exp_units = [eu for eu in exp_units if eu['unit_number'] not in physical_ghost_ids]
+
+        # 🚀 STEP 4: Compile Final Vacancy List
+        # 🚀 STEP 4: Compile Final Vacancy List (EXACT views.py matching)
+        vacant_units = []
+        for eu in exp_units:
+            # 🚀 THE FIX: ONLY check is_occupied! Never trust the raw unit status over the lease logic!
+            if not eu['is_occupied']:
+                last_tenant = eu['tenant'].full_name if eu['tenant'] else "None"
+
+                # Fetch the absolute most recent closed/terminated tenant name if no active one exists
+                if not eu['tenant'] and eu.get('latest_contract') and eu['latest_contract'].tenant:
+                    last_tenant = eu['latest_contract'].tenant.full_name
+
+                vacant_units.append(f"- **{eu['unit_number']}** (Last Tenant: {last_tenant})")
 
         if vacant_units:
-            vacant_units.sort()  # Sort the unit numbers cleanly
+            vacant_units.sort()
             results.append(f"**{p.name} - Vacant Units ({len(vacant_units)}):**\n" + "\n".join(vacant_units))
         else:
             results.append(f"**{p.name}:** 100% Occupied (0 Vacant units)")
