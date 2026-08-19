@@ -70,11 +70,13 @@ def fuzzy_filter_contracts(contracts_qs, search_query):
 # 1. CORE PROPERTY & TENANT TOOLS (CURRENT ACTIVE CONTRACTS ONLY)
 # ========================================================================
 @tool
-def get_current_tenant_info(landlord_id: int, search_query: str, property_name: str = None) -> str:
-    """Retrieves phone number, email, and details of the CURRENT ACTIVE tenant in a specific unit or by name."""
+def get_current_tenant_info(landlord_id: int, search_query: str, property_name: str = "") -> str:
+    """Retrieves phone number, email, and details of the LATEST tenant in a specific unit or by name."""
+
+    # 🚀 THE FIX: Remove the strict status filter so we can scan all contracts,
+    # but we will sort them to guarantee we only return the absolute newest one.
     contracts = Contract.objects.filter(
-        unit__property_asset__owner_id=landlord_id,
-        status__in=['Active', 'Expired (Holdover)']
+        unit__property_asset__owner_id=landlord_id
     ).select_related('tenant', 'unit', 'unit__property_asset')
 
     if property_name:
@@ -82,21 +84,35 @@ def get_current_tenant_info(landlord_id: int, search_query: str, property_name: 
         if matched_prop:
             contracts = contracts.filter(unit__property_asset_id=matched_prop.id)
 
-    # 🚀 THE FIX: Apply the smart fuzzy matcher
+    # Apply the smart fuzzy matcher
     contracts = fuzzy_filter_contracts(contracts, search_query)
 
     if not contracts.exists():
-        return f"Could not find any CURRENT active tenant matching '{search_query}'."
+        return f"Could not find any tenant matching '{search_query}'."
 
+    # 🚀 THE FIX: Sort by start_date descending so the newest contract is ALWAYS first
+    contracts = contracts.order_by('-start_date')
+
+    seen_units = set()
     results = []
+
+    # Only keep the absolute newest contract per physical unit
     for c in contracts:
+        if c.unit.id in seen_units:
+            continue
+        seen_units.add(c.unit.id)
+
+        start_str = c.start_date.strftime('%b %Y') if c.start_date else 'N/A'
+        end_str = c.end_date.strftime('%b %Y') if c.end_date else 'N/A'
+
         results.append(
             f"**Tenant:** {c.tenant.full_name}\n"
             f"- **Unit:** {c.unit.unit_number} ({c.unit.property_asset.name})\n"
             f"- **Phone:** {c.tenant.phone}\n"
             f"- **Email:** {c.tenant.email or 'N/A'}\n"
-            f"- **Lease:** {c.start_date.strftime('%b %Y')} to {c.end_date.strftime('%b %Y')} ({c.status})"
+            f"- **Lease:** {start_str} to {end_str} ({c.status})"
         )
+
     return "\n\n".join(results)
 
 
