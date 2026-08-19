@@ -668,3 +668,72 @@ def get_pending_pdcs(landlord_id: int, exact_date: str = "", date_from: str = ""
         results.append(f"- **{date_str}** | AED {float(c.amount):,.2f} | {chq_info} | {tenant} ({unit}, {bldg})")
 
     return "\n".join(results)
+
+
+@tool
+def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
+    """
+    Retrieves an accurate list of all currently VACANT units for a specific building.
+    Use this when the user asks 'what is vacant in Muhammed Yousuf', 'show empty flats', etc.
+    """
+    properties = list(Property.objects.filter(owner_id=landlord_id))
+
+    if property_name:
+        search_lower = property_name.lower().replace('bldg', '').replace('building', '').strip()
+        prop_map = {p.name.lower().replace('bldg', '').replace('building', '').strip(): p for p in properties}
+
+        matched_prop = None
+
+        # 1. Try direct substring match first
+        for clean_name, p in prop_map.items():
+            if search_lower in clean_name or clean_name in search_lower:
+                matched_prop = p
+                break
+
+        # 2. 🚀 THE FIX: Use Python's built-in fuzzy matcher to catch "Mohammed" vs "Muhammed"
+        if not matched_prop:
+            close_matches = difflib.get_close_matches(search_lower, prop_map.keys(), n=1, cutoff=0.5)
+            if close_matches:
+                matched_prop = prop_map[close_matches[0]]
+
+        if matched_prop:
+            properties = [matched_prop]
+        else:
+            # Provide a helpful fallback list if the spelling is completely destroyed
+            available = ", ".join([p.name for p in properties])
+            return f"Could not find a building matching '{property_name}'. Available properties are: {available}"
+
+    results = []
+    for p in properties:
+        units = p.units.all()
+        vacant_units = []
+
+        for u in units:
+            if '-' not in u.unit_number:
+                continue
+
+            contracts = list(u.contracts.all())
+            is_occupied = False
+            last_tenant = "None"
+
+            if contracts:
+                # Find the absolute newest contract for this specific physical unit
+                latest_c = max(contracts, key=lambda c: (c.start_date, c.end_date))
+                if latest_c.tenant:
+                    last_tenant = latest_c.tenant.full_name
+
+                # UI Logic: If it is not Terminated or Closed, it is considered occupied
+                if latest_c.status not in ['Terminated', 'Closed']:
+                    is_occupied = True
+
+            # Double check against the physical unit status updated by PACT sync
+            if not is_occupied or u.status == 'Vacant':
+                vacant_units.append(f"- **{u.unit_number}** (Last Tenant: {last_tenant})")
+
+        if vacant_units:
+            vacant_units.sort()  # Sort the unit numbers cleanly
+            results.append(f"**{p.name} - Vacant Units ({len(vacant_units)}):**\n" + "\n".join(vacant_units))
+        else:
+            results.append(f"**{p.name}:** 100% Occupied (0 Vacant units)")
+
+    return "\n\n".join(results)
