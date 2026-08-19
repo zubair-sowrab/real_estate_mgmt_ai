@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 import re
 from django.db.models import Avg, Count, Q, Sum
+from django.db.models import Q
 from django.db.models.functions import TruncYear
 from django.utils import timezone
 import itertools
@@ -806,3 +807,71 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
             results.append(f"**{p.name}:** 100% Occupied (0 Vacant units)")
 
     return "\n\n".join(results)
+
+
+@tool
+def get_owner_expenses(landlord_id: int, exact_date: str = "", date_from: str = "", date_to: str = "",
+                       property_name: str = "", search_query: str = "") -> str:
+    """
+    Retrieves general ledger expenses and maintenance costs.
+    Use this ONLY when the user explicitly asks for "expenses", "costs", "maintenance", "petty cash", or money spent.
+    """
+    landlord = Landlord.objects.filter(id=landlord_id).first()
+    if not landlord: return "Landlord not found."
+
+    # 🚀 REPLICATE UI LOGIC: Restrict to official properties + General Expenses
+    allowed_towers = list(Property.objects.filter(owner=landlord).values_list('name', flat=True))
+    allowed_towers.append("General Expenses")
+
+    expenses = OwnerExpense.objects.filter(landlord=landlord, tower_name__in=allowed_towers)
+
+    # Date Filters
+    if exact_date:
+        expenses = expenses.filter(date=exact_date)
+        time_context = f"on {exact_date}"
+    else:
+        if date_from: expenses = expenses.filter(date__gte=date_from)
+        if date_to: expenses = expenses.filter(date__lte=date_to)
+        time_context = f"from {date_from or 'Start'} to {date_to or 'Today'}"
+
+    if property_name:
+        expenses = expenses.filter(tower_name__icontains=property_name)
+
+    if search_query:
+        expenses = expenses.filter(
+            Q(supplier__icontains=search_query) |
+            Q(remarks__icontains=search_query) |
+            Q(narration__icontains=search_query) |
+            Q(voucher_no__icontains=search_query)
+        )
+
+    expenses = expenses.order_by('-date', '-id')
+
+    if not expenses.exists():
+        return f"No expenses found {time_context}."
+
+    total_amount = sum(float(e.amount) for e in expenses)
+
+    results = [
+        f"**Expense Summary {time_context}:**",
+        f"- **Total Expenses:** AED {total_amount:,.2f}",
+        f"- **Total Transactions:** {expenses.count()}\n",
+        "**Detailed Expense Breakdown:**"
+    ]
+
+    for e in expenses:
+        date_str = e.date.strftime("%Y-%m-%d") if e.date else "N/A"
+        tower = e.tower_name or "General Expenses"
+        unit = e.unit_name or ""
+        location = f"{tower} - {unit}".strip(" -")
+
+        # Format the exact way the UI does (Doc + Line details)
+        details = []
+        if e.remarks: details.append(f"Doc: {e.remarks}")
+        if e.narration: details.append(f"Line: {e.narration}")
+        detail_str = " | ".join(details)
+
+        results.append(
+            f"- **{date_str}** | {e.voucher_no} | **AED {float(e.amount):,.2f}** | {e.supplier} | {location} | {detail_str}")
+
+    return "\n".join(results)
