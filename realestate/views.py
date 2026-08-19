@@ -1757,4 +1757,14 @@ class ChatbotAPIView(APIView):
             return Response({"reply": final_reply})
 
         except Exception as e:
-            return Response({"error": f"Agent encountered an error: {str(e)}"}, status=500)
+            error_msg = str(e)
+            # 🚀 THE FIX: We MUST return "reply" instead of "error" so the UI treats it as a normal chat message!
+            if "429" in error_msg or "rate limit" in error_msg.lower():
+                return Response({
+                                    "reply": "I have hit my processing token limit for the moment! Please give me about 10-15 minutes to recharge, and I will be ready to help you again."})
+            elif "400" in error_msg or "validation" in error_msg.lower():
+                return Response(
+                    {"reply": "I ran into a slight formatting hiccup with that request. Could you rephrase it for me?"})
+            else:
+                return Response({
+                                    "reply": "I ran into a temporary system issue while checking that for you. Please ask again in a moment!"})
