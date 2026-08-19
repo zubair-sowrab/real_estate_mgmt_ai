@@ -13,7 +13,7 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from .chatbot_tools import (
     get_current_tenant_info, get_contract_balance, get_unit_rent_history,
     get_portfolio_tenant_health_ranking, compare_portfolio_properties,
-    get_cashflow_summary, get_portal_navigation_guide
+    get_cashflow_summary, get_portal_navigation_guide,get_pending_pdcs
 )
 
 # 1. Initialize Tools
@@ -24,7 +24,7 @@ web_search_tool = DuckDuckGoSearchRun(
 tools = [
     get_current_tenant_info, get_contract_balance, get_unit_rent_history,
     get_portfolio_tenant_health_ranking, compare_portfolio_properties,
-    get_cashflow_summary, get_portal_navigation_guide, web_search_tool
+    get_cashflow_summary, get_portal_navigation_guide, web_search_tool,get_pending_pdcs
 ]
 
 # 2. Initialize LLM

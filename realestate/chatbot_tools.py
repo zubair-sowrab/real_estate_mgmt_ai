@@ -597,3 +597,46 @@ def get_portal_navigation_guide() -> str:
         "6. **Expenses:** Review maintenance costs and general expenses filtered by building, unit, or supplier.\n"
         "7. **Tenant Health:** A highly visual dashboard showing contract time elapsed vs. rent cleared, ledger details, and risk ratings (Excellent, Good, Warning, At Risk) with exact justifications."
     )
+
+
+@tool
+def get_pending_pdcs(landlord_id: int, exact_date: str = "", date_from: str = "", date_to: str = "") -> str:
+    """
+    Retrieves a list of all Pending PDCs (post-dated cheques) expected for a specific date or date range.
+    Use this when the user asks for 'pdcs for tomorrow', 'cheques coming up', etc.
+    """
+    collections = Collection.objects.filter(
+        contract__unit__property_asset__owner_id=landlord_id,
+        status='Pending PDC'
+    ).select_related('contract__tenant', 'contract__unit', 'contract__unit__property_asset').order_by('due_date')
+
+    if exact_date:
+        collections = collections.filter(due_date=exact_date)
+        time_context = f"for {exact_date}"
+    else:
+        if date_from: collections = collections.filter(due_date__gte=date_from)
+        if date_to: collections = collections.filter(due_date__lte=date_to)
+        time_context = f"from {date_from or 'Start'} to {date_to or 'Future'}"
+
+    if not collections.exists():
+        return f"No pending PDCs found {time_context}."
+
+    total_amount = sum(float(c.amount) for c in collections)
+
+    results = [
+        f"**Expected PDCs {time_context}:**",
+        f"- **Total Amount:** AED {total_amount:,.2f}",
+        f"- **Total Cheques:** {collections.count()}\n",
+        "**Cheque Breakdown:**"
+    ]
+
+    for c in collections:
+        tenant = c.contract.tenant.full_name if c.contract.tenant else "Unknown Tenant"
+        unit = c.contract.unit.unit_number if c.contract.unit else "Unknown Unit"
+        bldg = c.contract.unit.property_asset.name if c.contract.unit and c.contract.unit.property_asset else ""
+        chq_info = f"CHQ: {c.cheque_number}" if c.cheque_number else "No CHQ"
+
+        date_str = c.due_date.strftime('%Y-%m-%d') if c.due_date else ""
+        results.append(f"- **{date_str}** | AED {float(c.amount):,.2f} | {chq_info} | {tenant} ({unit}, {bldg})")
+
+    return "\n".join(results)
