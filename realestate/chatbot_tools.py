@@ -102,15 +102,27 @@ def get_current_tenant_info(landlord_id: int, search_query: str, property_name: 
             continue
         seen_units.add(c.unit.id)
 
-        start_str = c.start_date.strftime('%b %Y') if c.start_date else 'N/A'
-        end_str = c.end_date.strftime('%b %Y') if c.end_date else 'N/A'
+        start_str = c.start_date.strftime('%d %b %Y') if c.start_date else 'N/A'
+        end_str = c.end_date.strftime('%d %b %Y') if c.end_date else 'N/A'
+
+        # 🚀 THE FIX: Cross-reference physical Unit status and Contract status (Just like views.py & pact_sync.py)
+        is_vacant = (c.unit.status == 'Vacant') or (c.status in ['Closed', 'Terminated'])
+
+        if is_vacant:
+            unit_label = f"{c.unit.unit_number} ({c.unit.property_asset.name}) 🚨 [CURRENTLY VACANT]"
+            real_status = f"{c.status} (Moved Out)"
+        else:
+            unit_label = f"{c.unit.unit_number} ({c.unit.property_asset.name})"
+            real_status = c.status
+            if real_status == 'Active' and c.end_date and c.end_date < timezone.now().date():
+                real_status = 'Expired (Holdover)'
 
         results.append(
-            f"**Tenant:** {c.tenant.full_name}\n"
-            f"- **Unit:** {c.unit.unit_number} ({c.unit.property_asset.name})\n"
+            f"**Unit:** {unit_label}\n"
+            f"- **Previous/Latest Tenant:** {c.tenant.full_name}\n"
             f"- **Phone:** {c.tenant.phone}\n"
             f"- **Email:** {c.tenant.email or 'N/A'}\n"
-            f"- **Lease:** {start_str} to {end_str} ({c.status})"
+            f"- **Lease:** {start_str} to {end_str} ({real_status})"
         )
 
     return "\n\n".join(results)
