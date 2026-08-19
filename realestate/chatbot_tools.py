@@ -2,6 +2,7 @@ import difflib
 from datetime import datetime, timedelta
 from typing import Optional
 import re
+from typing import Optional
 from django.db.models import Avg, Count, Q, Sum
 from django.db.models import Q
 from django.db.models.functions import TruncYear
@@ -810,8 +811,7 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
 
 
 @tool
-def get_owner_expenses(landlord_id: int, exact_date: str = "", date_from: str = "", date_to: str = "",
-                       property_name: str = "", search_query: str = "") -> str:
+def get_owner_expenses(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, property_name: Optional[str] = None, search_query: Optional[str] = None) -> str:
     """
     Retrieves general ledger expenses and maintenance costs.
     Use this ONLY when the user explicitly asks for "expenses", "costs", "maintenance", "petty cash", or money spent.
