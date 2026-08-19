@@ -2,9 +2,7 @@ import difflib
 from datetime import datetime, timedelta
 from typing import Optional
 import re
-from typing import Optional
 from django.db.models import Avg, Count, Q, Sum
-from django.db.models import Q
 from django.db.models.functions import TruncYear
 from django.utils import timezone
 import itertools
@@ -22,7 +20,7 @@ from .views import get_property_expanded_stats
 # 0. UNIVERSAL HELPERS
 # ========================================================================
 
-def get_matched_property(landlord_id: int, search_query: str):
+def get_matched_property(landlord_id: int, search_query: Optional[str] = None):
     if not search_query: return None
     properties = Property.objects.filter(owner_id=landlord_id)
     query_clean = search_query.lower().replace('building', '').replace('bldg', '').replace('tower', '').strip()
@@ -38,13 +36,12 @@ def get_matched_property(landlord_id: int, search_query: str):
     return None
 
 
-def fuzzy_filter_contracts(contracts_qs, search_query):
+def fuzzy_filter_contracts(contracts_qs, search_query: Optional[str] = None):
     """Bulletproof fuzzy matcher for tenants and units."""
     if not search_query: return contracts_qs.none()
 
     query_clean = search_query.lower().replace('flat', '').replace('shop', '').replace('unit', '').strip()
 
-    # 1. Try Exact match across name, phone, or unit number
     exact = contracts_qs.filter(
         Q(tenant__full_name__icontains=search_query) |
         Q(tenant__phone__icontains=search_query) |
@@ -52,14 +49,11 @@ def fuzzy_filter_contracts(contracts_qs, search_query):
     )
     if exact.exists(): return exact
 
-    # 2. Smart Word Matcher (Catches "Bakery" -> "Bakeries L.L.C")
-    # Strip common fluff words and find the core search terms
     words = [w for w in search_query.lower().replace('al ', '').split() if len(w) >= 3]
 
     if words:
         q_obj = Q()
         for w in words:
-            # Strip endings like 'y' or 'ies' to match the root word
             clean_w = w.rstrip('y').rstrip('ies') if len(w) > 4 else w
             q_obj |= Q(tenant__full_name__icontains=clean_w)
             q_obj |= Q(unit__unit_number__icontains=clean_w)
@@ -68,15 +62,15 @@ def fuzzy_filter_contracts(contracts_qs, search_query):
         if fuzzy.exists(): return fuzzy
 
     return contracts_qs.none()
-# ========================================================================
-# 1. CORE PROPERTY & TENANT TOOLS (CURRENT ACTIVE CONTRACTS ONLY)
-# ========================================================================
-@tool
-def get_current_tenant_info(landlord_id: int, search_query: str, property_name: str = "") -> str:
-    """Retrieves phone number, email, and details of the LATEST tenant in a specific unit or by name."""
 
-    # 🚀 THE FIX: Remove the strict status filter so we can scan all contracts,
-    # but we will sort them to guarantee we only return the absolute newest one.
+
+# ========================================================================
+# 1. CORE PROPERTY & TENANT TOOLS
+# ========================================================================
+
+@tool
+def get_current_tenant_info(landlord_id: int, search_query: str, property_name: Optional[str] = None) -> str:
+    """Retrieves phone number, email, and details of the LATEST tenant in a specific unit or by name."""
     contracts = Contract.objects.filter(
         unit__property_asset__owner_id=landlord_id
     ).select_related('tenant', 'unit', 'unit__property_asset')
@@ -86,29 +80,27 @@ def get_current_tenant_info(landlord_id: int, search_query: str, property_name: 
         if matched_prop:
             contracts = contracts.filter(unit__property_asset_id=matched_prop.id)
 
-    # Apply the smart fuzzy matcher
     contracts = fuzzy_filter_contracts(contracts, search_query)
 
     if not contracts.exists():
         return f"Could not find any tenant matching '{search_query}'."
 
-    # 🚀 THE FIX: Sort by start_date descending so the newest contract is ALWAYS first
     contracts = contracts.order_by('-start_date')
-
     seen_units = set()
     results = []
 
-    # Only keep the absolute newest contract per physical unit
     for c in contracts:
-        if c.unit.id in seen_units:
+        if not c.unit or c.unit.id in seen_units:
             continue
         seen_units.add(c.unit.id)
 
         start_str = c.start_date.strftime('%d %b %Y') if c.start_date else 'N/A'
         end_str = c.end_date.strftime('%d %b %Y') if c.end_date else 'N/A'
 
-        # 🚀 THE FIX: Cross-reference physical Unit status and Contract status (Just like views.py & pact_sync.py)
         is_vacant = (c.unit.status == 'Vacant') or (c.status in ['Closed', 'Terminated'])
+        tenant_name = c.tenant.full_name if c.tenant else "Unknown Tenant"
+        tenant_phone = c.tenant.phone if c.tenant else "N/A"
+        tenant_email = c.tenant.email if (c.tenant and c.tenant.email) else 'N/A'
 
         if is_vacant:
             unit_label = f"{c.unit.unit_number} ({c.unit.property_asset.name}) 🚨 [CURRENTLY VACANT]"
@@ -121,9 +113,9 @@ def get_current_tenant_info(landlord_id: int, search_query: str, property_name: 
 
         results.append(
             f"**Unit:** {unit_label}\n"
-            f"- **Previous/Latest Tenant:** {c.tenant.full_name}\n"
-            f"- **Phone:** {c.tenant.phone}\n"
-            f"- **Email:** {c.tenant.email or 'N/A'}\n"
+            f"- **Previous/Latest Tenant:** {tenant_name}\n"
+            f"- **Phone:** {tenant_phone}\n"
+            f"- **Email:** {tenant_email}\n"
             f"- **Lease:** {start_str} to {end_str} ({real_status})"
         )
 
@@ -131,7 +123,7 @@ def get_current_tenant_info(landlord_id: int, search_query: str, property_name: 
 
 
 @tool
-def get_contract_balance(landlord_id: int, unit_number: str, property_name: str = None) -> str:
+def get_contract_balance(landlord_id: int, unit_number: str, property_name: Optional[str] = None) -> str:
     """Retrieves the financial status of a CURRENT contract by calculating actual ledger debits and credits."""
     contracts = Contract.objects.filter(
         unit__property_asset__owner_id=landlord_id,
@@ -143,7 +135,6 @@ def get_contract_balance(landlord_id: int, unit_number: str, property_name: str 
         if matched_prop:
             contracts = contracts.filter(unit__property_asset_id=matched_prop.id)
 
-    # 🚀 THE FIX: Apply the smart fuzzy matcher here too
     contracts = fuzzy_filter_contracts(contracts, unit_number)
 
     if not contracts.exists():
@@ -152,14 +143,16 @@ def get_contract_balance(landlord_id: int, unit_number: str, property_name: str 
     c = contracts.order_by('-start_date').first()
 
     ledgers = ContractLedger.objects.filter(contract=c)
-    total_debit = sum(float(l.amount) for l in ledgers if l.is_debit)
-    total_credit = sum(float(l.amount) for l in ledgers if not l.is_debit)
-    total_pdr = float(sum(col.amount for col in c.collections.filter(status='Pending PDC')))
+    total_debit = sum(float(l.amount or 0) for l in ledgers if l.is_debit)
+    total_credit = sum(float(l.amount or 0) for l in ledgers if not l.is_debit)
+    total_pdr = float(sum(float(col.amount or 0) for col in c.collections.filter(status='Pending PDC')))
 
     balance = total_debit - total_credit
+    tenant_name = c.tenant.full_name if c.tenant else "Unknown Tenant"
+    unit_str = c.unit.unit_number if c.unit else "Unknown Unit"
 
     return (
-        f"**Tenant:** {c.tenant.full_name} | **Unit:** {c.unit.unit_number}\n"
+        f"**Tenant:** {tenant_name} | **Unit:** {unit_str}\n"
         f"- **Total Amount Debited (Total Rent):** AED {total_debit:,.2f}\n"
         f"- **Total Amount Credited (Amount Paid):** AED {total_credit:,.2f}\n"
         f"- **Total Pending PDCs (PDR):** AED {total_pdr:,.2f}\n"
@@ -171,15 +164,15 @@ def get_contract_balance(landlord_id: int, unit_number: str, property_name: str 
 @tool
 def get_tenant_performance(landlord_id: int, search_query: str) -> str:
     """Evaluates tenant risk score, payment timeliness, bounced cheques, contract expiry, and maintenance cost ratio."""
-
     if not search_query or len(search_query.strip()) < 2:
         return "Please provide a specific tenant name or unit number."
 
     today = timezone.now().date()
 
-    # 🚀 THE FIX: Use the smart fuzzy matcher instead of strict icontains
-    contracts = Contract.objects.filter(unit__property_asset__owner_id=landlord_id).select_related('tenant', 'unit',
-                                                                                                   'unit__property_asset')
+    contracts = Contract.objects.filter(
+        unit__property_asset__owner_id=landlord_id
+    ).select_related('tenant', 'unit', 'unit__property_asset')
+
     contracts = fuzzy_filter_contracts(contracts, search_query)
 
     if not contracts.exists():
@@ -187,14 +180,14 @@ def get_tenant_performance(landlord_id: int, search_query: str) -> str:
 
     results = []
     for c in contracts:
-        # 🚀 Pull financials perfectly
         ledgers = ContractLedger.objects.filter(contract=c)
-        total_debit = sum(float(l.amount) for l in ledgers if l.is_debit)
-        total_credit = sum(float(l.amount) for l in ledgers if not l.is_debit)
-        total_pdr = float(sum(col.amount for col in c.collections.filter(status='Pending PDC')))
+        total_debit = sum(float(l.amount or 0) for l in ledgers if l.is_debit)
+        total_credit = sum(float(l.amount or 0) for l in ledgers if not l.is_debit)
+        total_pdr = float(sum(float(col.amount or 0) for col in c.collections.filter(status='Pending PDC')))
 
-        # Fallback to contract base rent ONLY if ledger is completely empty
-        total_rent = total_debit if total_debit > 0 else (float(c.comprehensive_rent_amount) or float(c.unit.base_rent))
+        comp_rent = float(c.comprehensive_rent_amount) if c.comprehensive_rent_amount else 0.0
+        base_rent = float(c.unit.base_rent) if (c.unit and c.unit.base_rent) else 0.0
+        total_rent = total_debit if total_debit > 0 else (comp_rent or base_rent)
 
         bounced_count = c.collections.filter(status='Bounced').count()
 
@@ -209,30 +202,35 @@ def get_tenant_performance(landlord_id: int, search_query: str) -> str:
                 days_left = 0
 
         cleared_pct = min(100, int((total_credit / total_rent) * 100)) if total_rent > 0 else 0
+
+        tower_name = c.unit.property_asset.name if (c.unit and c.unit.property_asset) else ""
+        unit_number = c.unit.unit_number if c.unit else ""
+
         exp_agg = OwnerExpense.objects.filter(
             landlord_id=landlord_id,
-            unit_name=c.unit.unit_number,
-            tower_name=c.unit.property_asset.name,
+            unit_name=unit_number,
+            tower_name=tower_name,
             date__gte=c.start_date if c.start_date else datetime(2000, 1, 1).date()
         ).aggregate(total=Sum('amount'))
         expenses = float(exp_agg['total'] or 0)
 
         issues = []
         if bounced_count > 0: issues.append(f"{bounced_count} Bounced Cheque(s)")
-        if cleared_pct < (time_pct - 15) and (total_credit + total_pdr) < total_rent * 0.95: issues.append(
-            f"Payments lag behind time elapsed")
+        if cleared_pct < (time_pct - 15) and (total_credit + total_pdr) < total_rent * 0.95:
+            issues.append("Payments lag behind time elapsed")
         if days_expired > 0: issues.append(f"Expired {days_expired} days ago")
-        if expenses > (total_rent * 0.15) and expenses > 0: issues.append(f"High maintenance")
+        if expenses > (total_rent * 0.15) and expenses > 0: issues.append("High maintenance")
 
         grade = "At Risk" if (bounced_count > 0 or days_expired > 0 or (
                 cleared_pct < (time_pct - 25) and (total_credit + total_pdr) < total_rent * 0.95)) else (
             "Excellent" if not issues and (
-                        cleared_pct >= time_pct or (total_credit + total_pdr) >= total_rent * 0.95) else (
+                    cleared_pct >= time_pct or (total_credit + total_pdr) >= total_rent * 0.95) else (
                 "Warning" if issues else "Good"))
 
-        # 🚀 THE FIX: Removed unnecessary padding to keep the response super compact
+        tenant_name = c.tenant.full_name if c.tenant else "Unknown Tenant"
+
         results.append(
-            f"**{c.tenant.full_name}** ({c.unit.unit_number})\n"
+            f"**{tenant_name}** ({unit_number})\n"
             f"- **Grade:** {grade}\n"
             f"- **Total Rent (Debit):** AED {total_rent:,.2f}\n"
             f"- **Paid (Credit):** AED {total_credit:,.2f}\n"
@@ -243,7 +241,7 @@ def get_tenant_performance(landlord_id: int, search_query: str) -> str:
 
 
 @tool
-def get_unit_rent_history(landlord_id: int, unit_number: str, property_name: str = None) -> str:
+def get_unit_rent_history(landlord_id: int, unit_number: str, property_name: Optional[str] = None) -> str:
     """Retrieves the complete historical list of past contracts and rent amounts for a specific unit."""
     contracts = Contract.objects.filter(unit__property_asset__owner_id=landlord_id)
     if property_name:
@@ -260,16 +258,17 @@ def get_unit_rent_history(landlord_id: int, unit_number: str, property_name: str
     results = [f"**Rent History for Unit {unit_ref.unit_number} ({unit_ref.property_asset.name}):**\n"]
     for c in contracts:
         rent = float(c.comprehensive_rent_amount) if c.comprehensive_rent_amount else 0.0
+        tenant_name = c.tenant.full_name if c.tenant else "Unknown Tenant"
+        start_year = c.start_date.strftime('%Y') if c.start_date else 'N/A'
+        end_year = c.end_date.strftime('%Y') if c.end_date else 'N/A'
         results.append(
-            f"- **{c.start_date.strftime('%Y')} - {c.end_date.strftime('%Y')}**: AED {rent:,.2f} | Tenant: {c.tenant.full_name} ({c.status})")
+            f"- **{start_year} - {end_year}**: AED {rent:,.2f} | Tenant: {tenant_name} ({c.status})")
     return "\n".join(results)
 
 
 @tool
-def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "worst", limit: int = 5) -> str:
-    """
-    Ranks ALL true current tenants across the entire portfolio to find the absolute 'best' or 'worst'.
-    """
+def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: Optional[str] = "worst", limit: Optional[int] = 5) -> str:
+    """Ranks ALL true current tenants across the entire portfolio to find the absolute 'best' or 'worst'."""
     today = timezone.now().date()
     properties = Property.objects.filter(owner_id=landlord_id)
 
@@ -304,11 +303,13 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
 
     for c in true_active_contracts:
         ledgers = ContractLedger.objects.filter(contract=c)
-        total_debit = sum(float(l.amount) for l in ledgers if l.is_debit)
-        total_credit = sum(float(l.amount) for l in ledgers if not l.is_debit)
-        total_pdr = float(sum(col.amount for col in c.collections.filter(status='Pending PDC')))
+        total_debit = sum(float(l.amount or 0) for l in ledgers if l.is_debit)
+        total_credit = sum(float(l.amount or 0) for l in ledgers if not l.is_debit)
+        total_pdr = float(sum(float(col.amount or 0) for col in c.collections.filter(status='Pending PDC')))
 
-        total_rent = total_debit if total_debit > 0 else (float(c.comprehensive_rent_amount) or float(c.unit.base_rent))
+        comp_rent = float(c.comprehensive_rent_amount) if c.comprehensive_rent_amount else 0.0
+        base_rent = float(c.unit.base_rent) if (c.unit and c.unit.base_rent) else 0.0
+        total_rent = total_debit if total_debit > 0 else (comp_rent or base_rent)
         if total_rent == 0: continue
 
         bounced_count = c.collections.filter(status='Bounced').count()
@@ -325,10 +326,11 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
 
         cleared_pct = min(100, int((total_credit / total_rent) * 100))
         expenses = float(OwnerExpense.objects.filter(
-            landlord_id=landlord_id, unit_name=c.unit.unit_number, tower_name=c.unit.property_asset.name
+            landlord_id=landlord_id,
+            unit_name=c.unit.unit_number if c.unit else "",
+            tower_name=c.unit.property_asset.name if (c.unit and c.unit.property_asset) else ""
         ).aggregate(total=Sum('amount'))['total'] or 0)
 
-        # 🚀 THE HEALTH SCORING ALGORITHM
         score = 100
         score -= (bounced_count * 30)
         score -= (days_expired * 2)
@@ -341,7 +343,6 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
         if exp_ratio > 0.10:
             score -= (exp_ratio * 100)
 
-        # 🚀 THE FIX: Sync issues exactly to the penalties so it never lies
         issues = []
         if bounced_count > 0: issues.append(f"{bounced_count} Bounced Cheque(s)")
         if days_expired > 0: issues.append(f"Expired {days_expired} days ago")
@@ -349,34 +350,38 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
             f"Payments lag {lag}% behind time elapsed")
         if expenses > (total_rent * 0.15): issues.append(f"High maintenance (AED {expenses:,.0f})")
 
+        tenant_name = c.tenant.full_name if c.tenant else "Unknown Tenant"
+        unit_label = f"{c.unit.unit_number} ({c.unit.property_asset.name})" if (c.unit and c.unit.property_asset) else "Unknown Unit"
+
         tenant_scores.append({
-            'name': c.tenant.full_name,
-            'unit': f"{c.unit.unit_number} ({c.unit.property_asset.name})",
+            'name': tenant_name,
+            'unit': unit_label,
             'score': score,
             'issues': ", ".join(issues) if issues else "Perfect profile",
             'rent': total_rent,
             'cleared_pct': cleared_pct
         })
 
-    if rank_type.lower() == "worst":
-        # 🚀 THE FIX: Only include tenants who actually lost points (score < 100)
+    rank_choice = rank_type or "worst"
+    limit_choice = limit or 5
+
+    if rank_choice.lower() == "worst":
         bad_tenants = [t for t in tenant_scores if t['score'] < 100]
         sorted_tenants = sorted(bad_tenants, key=lambda x: x['score'])
 
         if not sorted_tenants:
             return "🎉 Excellent news! You currently have no 'At-Risk' or poorly performing tenants in your portfolio."
 
-        actual_limit = min(limit, len(sorted_tenants))
+        actual_limit = min(limit_choice, len(sorted_tenants))
         title = f"🚨 **Top {actual_limit} Most At-Risk/Worst Tenants in Portfolio:**"
     else:
-        # Best tenants list
         good_tenants = [t for t in tenant_scores if t['score'] >= 100]
         sorted_tenants = sorted(good_tenants, key=lambda x: x['score'], reverse=True)
 
         if not sorted_tenants:
             sorted_tenants = sorted(tenant_scores, key=lambda x: x['score'], reverse=True)
 
-        actual_limit = min(limit, len(sorted_tenants))
+        actual_limit = min(limit_choice, len(sorted_tenants))
         title = f"🏆 **Top {actual_limit} Best Performing Tenants in Portfolio:**"
 
     results = [title + "\n"]
@@ -388,11 +393,8 @@ def get_portfolio_tenant_health_ranking(landlord_id: int, rank_type: str = "wors
 
 
 @tool
-def compare_portfolio_properties(landlord_id: int, property_names: str = None) -> str:
-    """
-    Compares all buildings owned by the landlord based on occupancy, rent, and expenses.
-    If property_names is empty, it compares ALL properties automatically.
-    """
+def compare_portfolio_properties(landlord_id: int, property_names: Optional[str] = None) -> str:
+    """Compares all buildings owned by the landlord based on occupancy, rent, and expenses."""
     properties = Property.objects.filter(owner_id=landlord_id)
 
     if property_names:
@@ -421,16 +423,11 @@ def compare_portfolio_properties(landlord_id: int, property_names: str = None) -
 
 
 @tool
-def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None,
-                         date_to: Optional[str] = None) -> str:
-    """
-    Retrieves exactly how much money was deposited (cleared), bounced, or replaced, ALONG WITH the detailed line-by-line voucher breakdown (including nested CROs).
-    Supports 'exact_date' (YYYY-MM-DD) OR 'date_from' and 'date_to'.
-    """
+def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> str:
+    """Retrieves deposits (cleared), bounced, and replaced vouchers with line-by-line breakdown."""
     landlord = Landlord.objects.filter(id=landlord_id).first()
     if not landlord: return "Landlord not found."
 
-    # 🚀 1. THE BULLETPROOF SHIELD
     pact_ll_id = str(landlord.pact_landlord_id).strip()
     prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
 
@@ -452,10 +449,8 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
             building_query |= Q(narration__icontains=core_name)
 
     final_query |= (building_query & Q(doc_prefix__in=allowed_prefixes))
-
     vouchers = BankDeposit.objects.filter(final_query).exclude(doc_prefix__in=['01', '03']).distinct()
 
-    # 🚀 2. GRAB ALL HISTORY FOR PROPER CRO MATCHING BEFORE DATE FILTERING
     all_cros = list(vouchers.filter(doc_abbr__in=['CRV', 'CRO']).order_by('date', 'id'))
     all_deposits = list(vouchers.filter(doc_abbr__in=['BRV', 'CRT', 'CRVM', 'CBR']).order_by('date', 'id'))
     unmatched_cros = all_cros.copy()
@@ -492,7 +487,6 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
 
     consolidated_deposits.sort(key=lambda x: x.date)
 
-    # 🚀 3. FIND THE MATCHING CROS
     for d in consolidated_deposits:
         d.linked_cros = []
         if d.doc_abbr != 'BRV': continue
@@ -544,7 +538,6 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
 
     consolidated_deposits.sort(key=lambda x: x.date, reverse=True)
 
-    # 🚀 4. NOW FILTER BY DATE (Preserves the matching done above!)
     final_ui_list = []
     time_context = "for requested dates"
 
@@ -560,7 +553,6 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
             if date_to and str(d.date) > date_to: keep = False
             if keep: final_ui_list.append(d)
 
-    # 🚀 5. BUILD THE PERFECT RESPONSE TEXT
     deposited_total = 0.0
     bounced_total = 0.0
     cleared_lines = []
@@ -575,13 +567,7 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
         else:
             deposited_total += float(v.amount)
             chq = f" | CHQ: {v.cheque_no}" if v.cheque_no and v.cheque_no.lower() not in ['none', ''] else ""
-
-            # 🚀 THE FIX: Completely block narrations/remarks for BRV
-            if v.doc_abbr == 'BRV':
-                label = v.tenant or v.tower or ""
-            else:
-                label = v.tenant or v.tower or v.narration or "Bank Deposit"
-
+            label = (v.tenant or v.tower or "") if v.doc_abbr == 'BRV' else (v.tenant or v.tower or v.narration or "Bank Deposit")
             label_text = f" | {label}" if label else ""
 
             cro_details = ""
@@ -613,7 +599,6 @@ def get_cashflow_summary(landlord_id: int, exact_date: Optional[str] = None, dat
     return "\n".join(results)
 
 
-
 @tool
 def get_portal_navigation_guide() -> str:
     """Returns the EXACT mapping of the 7 available portal pages and what they are used for."""
@@ -630,11 +615,8 @@ def get_portal_navigation_guide() -> str:
 
 
 @tool
-def get_pending_pdcs(landlord_id: int, exact_date: str = "", date_from: str = "", date_to: str = "") -> str:
-    """
-    Retrieves a list of all Pending PDCs (post-dated cheques) expected for a specific date or date range.
-    Use this when the user asks for 'pdcs for tomorrow', 'cheques coming up', etc.
-    """
+def get_pending_pdcs(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None) -> str:
+    """Retrieves a list of all Pending PDCs expected for a specific date or date range."""
     collections = Collection.objects.filter(
         contract__unit__property_asset__owner_id=landlord_id,
         status='Pending PDC'
@@ -651,7 +633,7 @@ def get_pending_pdcs(landlord_id: int, exact_date: str = "", date_from: str = ""
     if not collections.exists():
         return f"No pending PDCs found {time_context}."
 
-    total_amount = sum(float(c.amount) for c in collections)
+    total_amount = sum(float(c.amount or 0) for c in collections)
 
     results = [
         f"**Expected PDCs {time_context}:**",
@@ -661,23 +643,19 @@ def get_pending_pdcs(landlord_id: int, exact_date: str = "", date_from: str = ""
     ]
 
     for c in collections:
-        tenant = c.contract.tenant.full_name if c.contract.tenant else "Unknown Tenant"
-        unit = c.contract.unit.unit_number if c.contract.unit else "Unknown Unit"
-        bldg = c.contract.unit.property_asset.name if c.contract.unit and c.contract.unit.property_asset else ""
+        tenant = c.contract.tenant.full_name if (c.contract and c.contract.tenant) else "Unknown Tenant"
+        unit = c.contract.unit.unit_number if (c.contract and c.contract.unit) else "Unknown Unit"
+        bldg = c.contract.unit.property_asset.name if (c.contract and c.contract.unit and c.contract.unit.property_asset) else ""
         chq_info = f"CHQ: {c.cheque_number}" if c.cheque_number else "No CHQ"
-
         date_str = c.due_date.strftime('%Y-%m-%d') if c.due_date else ""
-        results.append(f"- **{date_str}** | AED {float(c.amount):,.2f} | {chq_info} | {tenant} ({unit}, {bldg})")
+        results.append(f"- **{date_str}** | AED {float(c.amount or 0):,.2f} | {chq_info} | {tenant} ({unit}, {bldg})")
 
     return "\n".join(results)
 
 
 @tool
-def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
-    """
-    Retrieves an accurate list of all currently VACANT units for a specific building.
-    Use this when the user asks 'what is vacant in Muhammed Yousuf', 'show empty flats', etc.
-    """
+def get_vacant_units(landlord_id: int, property_name: Optional[str] = None) -> str:
+    """Retrieves an accurate list of all currently VACANT units for a specific building."""
     properties = list(Property.objects.filter(owner_id=landlord_id))
 
     if property_name:
@@ -685,14 +663,11 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
         prop_map = {p.name.lower().replace('bldg', '').replace('building', '').strip(): p for p in properties}
 
         matched_prop = None
-
-        # 1. Try direct substring match first
         for clean_name, p in prop_map.items():
             if search_lower in clean_name or clean_name in search_lower:
                 matched_prop = p
                 break
 
-        # 2. Use Python's built-in fuzzy matcher to catch typos
         if not matched_prop:
             close_matches = difflib.get_close_matches(search_lower, prop_map.keys(), n=1, cutoff=0.5)
             if close_matches:
@@ -707,7 +682,6 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
     results = []
 
     for p in properties:
-        # 🚀 STEP 1: Unit Normalization & Latest Contract Check
         units = p.units.all()
         expanded_dict = {}
 
@@ -741,7 +715,6 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
 
         exp_units = list(expanded_dict.values())
 
-        # 🚀 STEP 2: The Shattered Lease Deduplicator (Cost Center ID Check)
         sno_groups = {}
         ghost_unit_ids = set()
 
@@ -763,7 +736,6 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
 
         exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
 
-        # 🚀 STEP 3: The Physical Space Deduplicator (Sub-Unit Check)
         occupied_base_units = set()
         for eu in exp_units:
             c = eu.get('latest_contract')
@@ -787,18 +759,12 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
 
         exp_units = [eu for eu in exp_units if eu['unit_number'] not in physical_ghost_ids]
 
-        # 🚀 STEP 4: Compile Final Vacancy List
-        # 🚀 STEP 4: Compile Final Vacancy List (EXACT views.py matching)
         vacant_units = []
         for eu in exp_units:
-            # 🚀 THE FIX: ONLY check is_occupied! Never trust the raw unit status over the lease logic!
             if not eu['is_occupied']:
                 last_tenant = eu['tenant'].full_name if eu['tenant'] else "None"
-
-                # Fetch the absolute most recent closed/terminated tenant name if no active one exists
                 if not eu['tenant'] and eu.get('latest_contract') and eu['latest_contract'].tenant:
                     last_tenant = eu['latest_contract'].tenant.full_name
-
                 vacant_units.append(f"- **{eu['unit_number']}** (Last Tenant: {last_tenant})")
 
         if vacant_units:
@@ -812,20 +778,15 @@ def get_vacant_units(landlord_id: int, property_name: str = "") -> str:
 
 @tool
 def get_owner_expenses(landlord_id: int, exact_date: Optional[str] = None, date_from: Optional[str] = None, date_to: Optional[str] = None, property_name: Optional[str] = None, search_query: Optional[str] = None) -> str:
-    """
-    Retrieves general ledger expenses and maintenance costs.
-    Use this ONLY when the user explicitly asks for "expenses", "costs", "maintenance", "petty cash", or money spent.
-    """
+    """Retrieves general ledger expenses and maintenance costs."""
     landlord = Landlord.objects.filter(id=landlord_id).first()
     if not landlord: return "Landlord not found."
 
-    # 🚀 REPLICATE UI LOGIC: Restrict to official properties + General Expenses
     allowed_towers = list(Property.objects.filter(owner=landlord).values_list('name', flat=True))
     allowed_towers.append("General Expenses")
 
     expenses = OwnerExpense.objects.filter(landlord=landlord, tower_name__in=allowed_towers)
 
-    # Date Filters
     if exact_date:
         expenses = expenses.filter(date=exact_date)
         time_context = f"on {exact_date}"
@@ -850,7 +811,7 @@ def get_owner_expenses(landlord_id: int, exact_date: Optional[str] = None, date_
     if not expenses.exists():
         return f"No expenses found {time_context}."
 
-    total_amount = sum(float(e.amount) for e in expenses)
+    total_amount = sum(float(e.amount or 0) for e in expenses)
 
     results = [
         f"**Expense Summary {time_context}:**",
@@ -865,7 +826,6 @@ def get_owner_expenses(landlord_id: int, exact_date: Optional[str] = None, date_
         unit = e.unit_name or ""
         location = f"{tower} - {unit}".strip(" -")
 
-        # Format the exact way the UI does (Doc + Line details)
         details = []
         if e.remarks: details.append(f"Doc: {e.remarks}")
         if e.narration: details.append(f"Line: {e.narration}")

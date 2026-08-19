@@ -149,7 +149,13 @@
             margin: 0 auto;
             width: 100%;
         }
-
+.chat-window {
+                width: calc(100% - 40px); /* Gives it a clean 20px margin on both sides */
+                right: 20px;
+                bottom: 80px;
+                height: 75vh; /* Adapts cleanly to the phone's height */
+                max-height: 550px;
+            }
         .mobile-menu-btn { display: none; }
         .sidebar-overlay { display: none; }
 
@@ -332,7 +338,9 @@
             font-weight: 600;
         }
 
-        @media (max-width: 768px) {
+
+
+            @media (max-width: 768px) {
             .sidebar { position: fixed; top: 0; left: 0; height: 100%; transform: translateX(-100%); transition: transform 0.3s ease; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
             .sidebar.active { transform: translateX(0); }
             .sidebar-overlay.active { display: block; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 5; opacity: 1; }
@@ -516,19 +524,19 @@
 
                     const data = await response.json();
 
-                    // Remove typing indicator
-                    document.getElementById(typingId).remove();
+                    // 🚀 THE FIX: Added '?' to safely remove the indicator without crashing[cite: 3]
+                    document.getElementById(typingId)?.remove();
 
                     if (response.ok) {
                         let formattedReply = marked.parse(data.reply);
                         appendMessage(formattedReply, 'ai-message');
 
                         // 🚀 Save this exchange to memory for the next question!
-                        chatHistory.push({ role: 'user', content: message });
-                        chatHistory.push({ role: 'assistant', content: data.reply });
+                        chatHistory.push({role: 'user', content: message});
+                        chatHistory.push({role: 'assistant', content: data.reply});
 
                         // Keep memory light (only remember the last 10 messages so we don't overload the AI)
-                        if (chatHistory.length > 10) {
+                        if (chatHistory.length > 2) {
                             chatHistory = chatHistory.slice(chatHistory.length - 10);
                         }
 
@@ -536,7 +544,8 @@
                         appendMessage('Error: ' + (data.error || 'Something went wrong.'), 'ai-message');
                     }
                 } catch (error) {
-                    document.getElementById(typingId).remove();
+                    // 🚀 THE FIX: Added '?' to the error block as well[cite: 3]
+                    document.getElementById(typingId)?.remove();
                     appendMessage('Connection error. Please try again.', 'ai-message');
                 }
             });

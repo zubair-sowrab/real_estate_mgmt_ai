@@ -1695,15 +1695,15 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .chatbot_agent import chatbot_agent
 
+import traceback
 
 class ChatbotAPIView(APIView):
-    # Ensure only logged-in users can ping the AI
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user_message = request.data.get("message")
         requested_landlord_id = request.data.get("landlord_id")
-        chat_history = request.data.get("history", [])  # 🚀 Grab the memory array
+        chat_history = request.data.get("history", [])
 
         if not user_message:
             return Response({"error": "Message is required"}, status=400)
@@ -1719,18 +1719,13 @@ class ChatbotAPIView(APIView):
             except AttributeError:
                 return Response({"error": "Security Violation: User is not linked to a landlord profile."}, status=403)
 
-        # 2. BUILD THE CONVERSATION THREAD
+        # 2. BUILD CONVERSATION THREAD
         formatted_messages = []
-
-        # Load the previous context first
         for msg in chat_history:
             role = msg.get("role")
             content = msg.get("content")
             if role in ['user', 'assistant'] and content:
                 formatted_messages.append((role, content))
-
-        # 3. THE INJECTION: Securely wrap the *newest* message with the landlord ID
-        # 3. THE INJECTION: Securely wrap the *newest* message with the landlord ID and Current Time
 
         current_date = timezone.now().strftime("%Y-%m-%d")
         current_year = timezone.now().year
@@ -1743,12 +1738,10 @@ class ChatbotAPIView(APIView):
             f"User Message: {user_message}"
         )
 
-        # Add the newest secure prompt to the bottom of the stack
         formatted_messages.append(("user", secure_prompt))
 
-        # 4. EXECUTE THE AGENT
+        # 4. EXECUTE AGENT
         try:
-            # Pass the entire conversation history instead of just one message
             response_data = chatbot_agent.invoke({
                 "messages": formatted_messages
             })
@@ -1756,15 +1749,23 @@ class ChatbotAPIView(APIView):
             final_reply = response_data["messages"][-1].content
             return Response({"reply": final_reply})
 
+
         except Exception as e:
-            error_msg = str(e)
-            # 🚀 THE FIX: We MUST return "reply" instead of "error" so the UI treats it as a normal chat message!
-            if "429" in error_msg or "rate limit" in error_msg.lower():
-                return Response({
-                                    "reply": "I have hit my processing token limit for the moment! Please give me about 10-15 minutes to recharge, and I will be ready to help you again."})
-            elif "400" in error_msg or "validation" in error_msg.lower():
-                return Response(
-                    {"reply": "I ran into a slight formatting hiccup with that request. Could you rephrase it for me?"})
-            else:
-                return Response({
-                                    "reply": "I ran into a temporary system issue while checking that for you. Please ask again in a moment!"})
+
+            # Print the full stack trace to the terminal just in case
+
+            import traceback
+
+            print("\n" + "=" * 50)
+
+            print("🛑 BACKEND AGENT EXCEPTION TRACEBACK:")
+
+            traceback.print_exc()
+
+            print("=" * 50 + "\n")
+
+            # 🚀 RIP OUT THE SHIELD: Return the raw, exact error directly to the chat window!
+
+            raw_error = str(e)
+
+            return Response({"reply": f"**🚨 RAW SYSTEM CRASH:**\n```\n{raw_error}\n```"})

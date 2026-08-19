@@ -14,7 +14,7 @@ from .chatbot_tools import (
     get_current_tenant_info, get_contract_balance, get_unit_rent_history,
     get_portfolio_tenant_health_ranking, compare_portfolio_properties,
     get_cashflow_summary, get_portal_navigation_guide,get_pending_pdcs,
-get_vacant_units,get_owner_expenses
+get_vacant_units,get_owner_expenses,get_tenant_performance
 )
 
 # 1. Initialize Tools
@@ -26,15 +26,15 @@ tools = [
     get_current_tenant_info, get_contract_balance, get_unit_rent_history,
     get_portfolio_tenant_health_ranking, compare_portfolio_properties,
     get_cashflow_summary, get_portal_navigation_guide, web_search_tool,get_pending_pdcs,
-get_vacant_units,get_owner_expenses
+get_vacant_units,get_owner_expenses,get_tenant_performance
 ]
-
 # 2. Initialize LLM
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
     raise ValueError("CRITICAL: GROQ_API_KEY is missing from environment variables.")
 
-llm = ChatGroq(temperature=0.2, model_name="openai/gpt-oss-20b", api_key=api_key)
+# 🚀 UPDATED TO GROQ'S ACTIVE 2026 FLAGSHIP MODEL
+llm = ChatGroq(temperature=0.2, model_name="openai/gpt-oss-120b", api_key=api_key)
 
 # 3. The Strict Business Advisor System Prompt
 system_prompt = """
