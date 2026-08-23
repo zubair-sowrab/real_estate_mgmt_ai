@@ -348,3 +348,15 @@ class OwnerExpense(models.Model):
 
     def __str__(self):
         return f"{self.voucher_no} - AED {self.amount}"
+
+
+
+class PropertyAlias(models.Model):
+    keyword = models.CharField(max_length=100, unique=True, help_text="The abbreviation or keyword typed by accountants (e.g., 'mybn' or 'helio')")
+    target_name = models.CharField(max_length=200, help_text="The exact name of the Property/Villa it should map to (e.g., 'Muhammed Yousuf Bldg')")
+
+    class Meta:
+        verbose_name_plural = "Property Aliases"
+
+    def __str__(self):
+        return f"{self.keyword} -> {self.target_name}"

@@ -14,7 +14,7 @@
     .ybn-filter-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background-color: #f8fafc; }
     .ybn-filter-btn { background-color: #2563eb; color: white; border: none; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; }
     .ybn-filter-btn:hover { background-color: #1d4ed8; }
-
+.hidden { display: none !important; }
     /* Interactive Accordions & Rotating Arrows */
     details { transition: all 0.3s ease; }
     details > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; outline: none; }
@@ -47,8 +47,7 @@
         <h2 class="ybn-title">General Ledger Expenses</h2>
         <h4 class="ybn-total text-danger">Total: AED {{ total_expenses|floatformat:2|intcomma }}</h4>
     </div>
-
-    <!-- Filters -->
+<!-- Filters -->
     <div class="ybn-filter-card">
         <form method="GET">
             <div class="ybn-filter-row">
@@ -61,6 +60,16 @@
                     <input type="date" name="date_to" class="ybn-filter-input" value="{{ filters.date_to }}">
                 </div>
                 <div class="ybn-filter-group">
+                    <label class="ybn-filter-label">View By</label>
+                    <select name="sort" class="ybn-filter-input">
+                        <option value="building" {% if filters.sort == 'building' %}selected{% endif %}>Building (Default)</option>
+                        <option value="date" {% if filters.sort == 'date' %}selected{% endif %}>Date (Newest First)</option>
+                        <option value="date_asc" {% if filters.sort == 'date_asc' %}selected{% endif %}>Date (Oldest First)</option>
+                        <option value="desc" {% if filters.sort == 'desc' %}selected{% endif %}>Amount (Highest to Lowest)</option>
+                        <option value="asc" {% if filters.sort == 'asc' %}selected{% endif %}>Amount (Lowest to Highest)</option>
+                    </select>
+                </div>
+                <div class="ybn-filter-group">
                     <label class="ybn-filter-label">Building</label>
                     <select name="tower" class="ybn-filter-input">
                         <option value="">All Buildings</option>
@@ -68,10 +77,6 @@
                             <option value="{{ t }}" {% if filters.tower == t %}selected{% endif %}>{{ t }}</option>
                         {% endfor %}
                     </select>
-                </div>
-                <div class="ybn-filter-group">
-                    <label class="ybn-filter-label">Unit</label>
-                    <input type="text" name="unit" class="ybn-filter-input" placeholder="e.g. 502" value="{{ filters.unit }}">
                 </div>
                 <div class="ybn-filter-group" style="flex: 2;">
                     <label class="ybn-filter-label">Search Details</label>
@@ -89,67 +94,177 @@
         {% endif %}
     </div>
 
-    <!-- Expenses Hierarchy -->
-    {% for tower in expenses_data %}
-    <details class="ybn-tower-card">
-        <summary class="ybn-tower-summary">
-            <div style="display: flex; align-items: center;">
-                <i class="fa-solid fa-chevron-down ybn-chevron"></i>
-                <i class="fa-solid fa-building" style="color: #ca8a04; margin-right: 10px;"></i>
-                {{ tower.name }}
-            </div>
-            <span class="ybn-badge-danger">AED {{ tower.total|floatformat:2|intcomma }}</span>
-        </summary>
+    <!-- 🚀 Conditional View Rendering -->
+    {% if filters.sort == 'building' or not filters.sort %}
 
-        <div>
-            {% for unit in tower.units %}
-            <details class="ybn-unit-card">
-                <summary class="ybn-unit-summary">
-                    <div style="display: flex; align-items: center;">
-                        <i class="fa-solid fa-chevron-down ybn-chevron"></i>
-                        <i class="fa-solid fa-door-open" style="color: #94a3b8; margin-right: 10px;"></i>
-                        {{ unit.name }}
-                    </div>
-                    <span class="ybn-badge-secondary">AED {{ unit.total|floatformat:2|intcomma }}</span>
-                </summary>
-
-                <div style="padding: 15px; background: #f8fafc;">
-                    <table class="ybn-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 10%;">Date</th>
-                                <th style="width: 15%;">Voucher No</th>
-                                <th style="width: 25%;">Paid To</th>
-                                <th style="width: 35%;">Details & Narration</th>
-                                <th style="width: 15%; text-align: right;">Amount (AED)</th>
-                            </tr>
-                        </thead>
-                        <tbody style="background: white;">
-                            {% for exp in unit.expenses %}
-                            <tr>
-                                <td style="color: #64748b;">{{ exp.date }}</td>
-                                <td style="color: #2563eb; font-weight: 600;">{{ exp.voucher }}</td>
-                                <td style="font-weight: 600;">{{ exp.supplier }}</td>
-                                <td>
-                                    <div style="font-size: 0.85rem; color: #64748b;">
-                                        {% if exp.remarks and exp.remarks != 'None' %}
-                                            <div style="margin-bottom: 4px;"><strong style="color: #475569;">Doc:</strong> {{ exp.remarks }}</div>
-                                        {% endif %}
-                                        {% if exp.narration and exp.narration != 'None' %}
-                                            <div><strong style="color: #475569;">Line:</strong> {{ exp.narration }}</div>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                                <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        <!-- HIERARCHICAL VIEW (Building Accordions) -->
+        {% for tower in expenses_data %}
+        <details class="ybn-tower-card">
+            <summary class="ybn-tower-summary">
+                <div style="display: flex; align-items: center;">
+                    <i class="fa-solid fa-chevron-down ybn-chevron"></i>
+                    <i class="fa-solid fa-building" style="color: #ca8a04; margin-right: 10px;"></i>
+                    {{ tower.name }}
                 </div>
-            </details>
-            {% endfor %}
+                <span class="ybn-badge-danger">AED {{ tower.total|floatformat:2|intcomma }}</span>
+            </summary>
+
+            <div>
+                {% for unit in tower.units %}
+                <details class="ybn-unit-card">
+                    <summary class="ybn-unit-summary">
+                        <div style="display: flex; align-items: center;">
+                            <i class="fa-solid fa-chevron-down ybn-chevron"></i>
+                            <i class="fa-solid fa-door-open" style="color: #94a3b8; margin-right: 10px;"></i>
+                            {{ unit.name }}
+                        </div>
+                        <span class="ybn-badge-secondary">AED {{ unit.total|floatformat:2|intcomma }}</span>
+                    </summary>
+
+                    <div style="padding: 15px; background: #f8fafc;">
+                        <table class="ybn-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 10%;">Date</th>
+                                    <th style="width: 15%;">Voucher No</th>
+                                    <th style="width: 25%;">Paid To</th>
+                                    <th style="width: 35%;">Details & Narration</th>
+                                    <th style="width: 15%; text-align: right;">Amount (AED)</th>
+                                </tr>
+                            </thead>
+                           <tbody style="background: white;">
+                                {% for exp in unit.expenses %}
+                                    {% if exp.items|length > 1 %}
+                                    <tr style="cursor: pointer; background: #f8fafc; border-left: 3px solid #3b82f6;" onclick="document.getElementById('grp_bldg_{{ forloop.parentloop.counter }}_{{ forloop.counter }}').classList.toggle('hidden')">
+                                        <td style="color: #64748b;">{{ exp.date }}</td>
+                                        <td style="color: #2563eb; font-weight: 600;">
+                                            <i class="fa-solid fa-folder-tree" style="margin-right: 5px;"></i>{{ exp.voucher }}
+                                            <span style="font-size: 0.75rem; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 10px; margin-left: 5px;">{{ exp.items|length }} items</span>
+                                        </td>
+                                        <td style="font-weight: 600;">{{ exp.supplier }}</td>
+                                        <td><em style="color: #64748b; font-size: 0.85rem;"><i class="fa-solid fa-chevron-down" style="margin-right: 5px;"></i>Multiple entries. Click to expand.</em></td>
+                                        <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
+                                    </tr>
+                                    <tr id="grp_bldg_{{ forloop.parentloop.counter }}_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
+                                        <td colspan="5" style="padding: 0;">
+                                            <div style="padding: 10px 20px 10px 40px; border-left: 3px solid #3b82f6;">
+                                                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                                    {% for child in exp.items %}
+                                                    <tr>
+                                                        <td style="width: 25%; color: #64748b; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.voucher }}</td>
+                                                        <td style="width: 60%; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">
+                                                            {% if child.remarks and child.remarks != 'None' %}<span style="color: #475569; font-weight:600;">Doc:</span> {{ child.remarks }}<br>{% endif %}
+                                                            {% if child.narration and child.narration != 'None' %}<span style="color: #475569; font-weight:600;">Line:</span> {{ child.narration }}{% endif %}
+                                                        </td>
+                                                        <td style="width: 15%; text-align: right; color: #dc2626; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.amount|floatformat:2|intcomma }}</td>
+                                                    </tr>
+                                                    {% endfor %}
+                                                </table>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% else %}
+                                    <tr>
+                                        <td style="color: #64748b;">{{ exp.date }}</td>
+                                        <td style="color: #2563eb; font-weight: 600;">{{ exp.voucher }}</td>
+                                        <td style="font-weight: 600;">{{ exp.supplier }}</td>
+                                        <td>
+                                            <div style="font-size: 0.85rem; color: #64748b;">
+                                                {% for child in exp.items %}
+                                                    {% if child.remarks and child.remarks != 'None' %}<div style="margin-bottom: 4px;"><strong style="color: #475569;">Doc:</strong> {{ child.remarks }}</div>{% endif %}
+                                                    {% if child.narration and child.narration != 'None' %}<div><strong style="color: #475569;">Line:</strong> {{ child.narration }}</div>{% endif %}
+                                                {% endfor %}
+                                            </div>
+                                        </td>
+                                        <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
+                                    </tr>
+                                    {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+                {% endfor %}
+            </div>
+        </details>
+        {% endfor %}
+
+    {% else %}
+
+        <!-- FLAT TABLE VIEW (Date / Descending / Ascending) -->
+        <div style="padding: 15px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);">
+            <table class="ybn-table">
+                <thead>
+                    <tr>
+                        <th style="width: 10%;">Date</th>
+                        <th style="width: 15%;">Property & Unit</th>
+                        <th style="width: 15%;">Voucher No</th>
+                        <th style="width: 20%;">Paid To</th>
+                        <th style="width: 25%;">Details & Narration</th>
+                        <th style="width: 15%; text-align: right;">Amount (AED)</th>
+                    </tr>
+                </thead>
+                <tbody style="background: white;">
+                    {% for exp in flat_expenses %}
+                        {% if exp.items|length > 1 %}
+                        <tr style="cursor: pointer; background: #f8fafc; border-left: 3px solid #3b82f6;" onclick="document.getElementById('grp_flat_{{ forloop.counter }}').classList.toggle('hidden')">
+                            <td style="color: #64748b;">{{ exp.date }}</td>
+                            <td>
+                                <div style="font-weight: 600; color: #1e293b; margin-bottom: 3px;">{{ exp.tower }}</div>
+                                <div style="font-size: 0.85rem; color: #64748b;"><i class="fa-solid fa-door-open" style="margin-right: 5px;"></i>{{ exp.unit }}</div>
+                            </td>
+                            <td style="color: #2563eb; font-weight: 600;">
+                                <i class="fa-solid fa-folder-tree" style="margin-right: 5px;"></i>{{ exp.voucher }}
+                                <div style="font-size: 0.75rem; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 10px; display: inline-block; margin-top: 3px;">{{ exp.items|length }} items</div>
+                            </td>
+                            <td style="font-weight: 600;">{{ exp.supplier }}</td>
+                            <td><em style="color: #64748b; font-size: 0.85rem;"><i class="fa-solid fa-chevron-down" style="margin-right: 5px;"></i>Multiple entries. Click to expand.</em></td>
+                            <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
+                        </tr>
+                        <tr id="grp_flat_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
+                            <td colspan="6" style="padding: 0;">
+                                <div style="padding: 10px 20px 10px 40px; border-left: 3px solid #3b82f6;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                        {% for child in exp.items %}
+                                        <tr>
+                                            <td style="width: 25%; color: #64748b; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.voucher }}</td>
+                                            <td style="width: 60%; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">
+                                                {% if child.remarks and child.remarks != 'None' %}<span style="color: #475569; font-weight:600;">Doc:</span> {{ child.remarks }}<br>{% endif %}
+                                                {% if child.narration and child.narration != 'None' %}<span style="color: #475569; font-weight:600;">Line:</span> {{ child.narration }}{% endif %}
+                                            </td>
+                                            <td style="width: 15%; text-align: right; color: #dc2626; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.amount|floatformat:2|intcomma }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </table>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td style="color: #64748b;">{{ exp.date }}</td>
+                            <td>
+                                <div style="font-weight: 600; color: #1e293b; margin-bottom: 3px;">{{ exp.tower }}</div>
+                                <div style="font-size: 0.85rem; color: #64748b;"><i class="fa-solid fa-door-open" style="margin-right: 5px;"></i>{{ exp.unit }}</div>
+                            </td>
+                            <td style="color: #2563eb; font-weight: 600;">{{ exp.voucher }}</td>
+                            <td style="font-weight: 600;">{{ exp.supplier }}</td>
+                            <td>
+                                <div style="font-size: 0.85rem; color: #64748b;">
+                                    {% for child in exp.items %}
+                                        {% if child.remarks and child.remarks != 'None' %}<div style="margin-bottom: 4px;"><strong style="color: #475569;">Doc:</strong> {{ child.remarks }}</div>{% endif %}
+                                        {% if child.narration and child.narration != 'None' %}<div><strong style="color: #475569;">Line:</strong> {{ child.narration }}</div>{% endif %}
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
+                        </tr>
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-    </details>
-    {% endfor %}
+
+    {% endif %}
+
 </div>
 {% endblock %}

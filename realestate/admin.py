@@ -78,3 +78,12 @@ class BankDepositAdmin(admin.ModelAdmin):
     search_fields = ('voucher_no', 'tenant', 'cheque_no', 'narration')
     list_filter = ('doc_abbr', 'pact_status_id', 'date')
     ordering = ('-date',)
+
+
+
+from .models import PropertyAlias
+
+@admin.register(PropertyAlias)
+class PropertyAliasAdmin(admin.ModelAdmin):
+    list_display = ('keyword', 'target_name')
+    search_fields = ('keyword', 'target_name')

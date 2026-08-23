@@ -1335,31 +1335,20 @@ def owner_expenses(request, landlord_id):
         if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
             return HttpResponseForbidden("<h1>403</h1>")
 
-    # The base query is strictly tied to the requested landlord ID
+    # The sync script has already filtered strictly for building-related records
     base_qs = OwnerExpense.objects.filter(landlord=landlord)
 
-    # 🚀 NEW: Restrict to ONLY official properties in the Django database + General Expenses
-    allowed_towers = list(Property.objects.filter(owner=landlord).values_list('name', flat=True))
-    allowed_towers.append("General Expenses")
-
-    base_qs = base_qs.filter(tower_name__in=allowed_towers)
-
-    # Grab Filter Variables
     date_from = request.GET.get('date_from', '').strip()
     date_to = request.GET.get('date_to', '').strip()
     tower_filter = request.GET.get('tower', '').strip()
     unit_filter = request.GET.get('unit', '').strip()
     search_query = request.GET.get('search', '').strip()
+    sort_by = request.GET.get('sort', 'building').strip()
 
-    # Auto-set dates to the current month if no filters are applied
     if not bool(request.GET):
         today = timezone.now().date()
-        first_day_of_month = today.replace(day=1)
-
-        date_from = first_day_of_month.strftime("%Y-%m-%d")
+        date_from = today.replace(day=1).strftime("%Y-%m-%d")
         date_to = today.strftime("%Y-%m-%d")
-
-    # Apply Filters
     local_expenses = base_qs
     if date_from: local_expenses = local_expenses.filter(date__gte=date_from)
     if date_to: local_expenses = local_expenses.filter(date__lte=date_to)
@@ -1373,42 +1362,99 @@ def owner_expenses(request, landlord_id):
             Q(voucher_no__icontains=search_query)
         )
 
-
-
-    # Group the Data Hierarchically
     expenses_hierarchy = defaultdict(lambda: defaultdict(list))
+    flat_list_raw = []
     total_expenses = 0.0
 
     for exp in local_expenses:
-        total_expenses += float(exp.amount)
-        expenses_hierarchy[exp.tower_name][exp.unit_name].append({
+        amt = float(exp.amount)
+        total_expenses += amt
+
+        # 🚀 Extract base voucher number (stripping the unique -R database suffix)
+        base_v_no = exp.voucher_no.split('-R')[0] if '-R' in exp.voucher_no else exp.voucher_no
+
+        exp_dict = {
             'date': exp.date.strftime("%Y-%m-%d") if exp.date else 'N/A',
             'voucher': exp.voucher_no,
-            'amount': float(exp.amount),
+            'base_voucher': base_v_no,
+            'amount': amt,
             'supplier': exp.supplier,
             'remarks': exp.remarks,
             'narration': exp.narration,
-        })
+            'tower': exp.tower_name,
+            'unit': exp.unit_name
+        }
+
+        if sort_by == 'building':
+            expenses_hierarchy[exp.tower_name][exp.unit_name].append(exp_dict)
+        else:
+            flat_list_raw.append(exp_dict)
 
     final_data = []
-    for tower, units_dict in expenses_hierarchy.items():
-        tower_total = sum(sum(e['amount'] for e in expenses) for expenses in units_dict.values())
-        units_list = []
-        for unit, expenses in units_dict.items():
-            unit_total = sum(e['amount'] for e in expenses)
-            units_list.append({'name': unit, 'total': unit_total, 'expenses': expenses})
+    flat_expenses = []
 
-        # Sort units alphabetically
-        units_list.sort(key=lambda x: x['name'])
-        final_data.append({'name': tower, 'total': tower_total, 'units': units_list})
+    # 🚀 GROUPING ENGINE: Fuses the fragments together purely for UI visualization
+    if sort_by == 'building':
+        for tower, units_dict in expenses_hierarchy.items():
+            tower_total = 0
+            units_list = []
+            for unit, exp_list in units_dict.items():
+                grouped_exps = {}
+                for e in exp_list:
+                    key = (e['base_voucher'], e['date'], e['supplier'])
+                    if key not in grouped_exps:
+                        grouped_exps[key] = {
+                            'date': e['date'],
+                            'voucher': e['base_voucher'],
+                            'supplier': e['supplier'],
+                            'amount': 0.0,
+                            'items': []
+                        }
+                    grouped_exps[key]['amount'] += e['amount']
+                    grouped_exps[key]['items'].append(e)
 
-    final_data.sort(key=lambda x: x['total'], reverse=True)
+                unit_expenses = list(grouped_exps.values())
+                unit_total = sum(ge['amount'] for ge in unit_expenses)
+                tower_total += unit_total
+                units_list.append({'name': unit, 'total': unit_total, 'expenses': unit_expenses})
+            units_list.sort(key=lambda x: x['name'])
+            final_data.append({'name': tower, 'total': tower_total, 'units': units_list})
+        final_data.sort(key=lambda x: x['total'], reverse=True)
+    else:
+        grouped_exps = {}
+        for e in flat_list_raw:
+            key = (e['base_voucher'], e['date'], e['supplier'], e['tower'], e['unit'])
+            if key not in grouped_exps:
+                grouped_exps[key] = {
+                    'date': e['date'],
+                    'voucher': e['base_voucher'],
+                    'supplier': e['supplier'],
+                    'tower': e['tower'],
+                    'unit': e['unit'],
+                    'amount': 0.0,
+                    'items': []
+                }
+            grouped_exps[key]['amount'] += e['amount']
+            grouped_exps[key]['items'].append(e)
+
+        flat_expenses = list(grouped_exps.values())
+
+        if sort_by == 'date':
+            flat_expenses.sort(key=lambda x: x['date'], reverse=True)
+        elif sort_by == 'date_asc':
+            flat_expenses.sort(key=lambda x: x['date'])
+        elif sort_by == 'desc':
+            flat_expenses.sort(key=lambda x: x['amount'], reverse=True)
+        elif sort_by == 'asc':
+            flat_expenses.sort(key=lambda x: x['amount'])
+
     unique_towers = base_qs.exclude(tower_name__isnull=True).values_list('tower_name', flat=True).distinct().order_by(
         'tower_name')
 
     return render(request, 'realestate/owner_expenses.html', {
         'landlord': landlord,
         'expenses_data': final_data,
+        'flat_expenses': flat_expenses,
         'total_expenses': total_expenses,
         'unique_towers': unique_towers,
         'filters': {
@@ -1416,7 +1462,8 @@ def owner_expenses(request, landlord_id):
             'date_to': date_to,
             'tower': tower_filter,
             'unit': unit_filter,
-            'search': search_query
+            'search': search_query,
+            'sort': sort_by
         },
         'notifications': get_dynamic_notifications(landlord),
         'notif_count': len(get_dynamic_notifications(landlord))
