@@ -201,7 +201,7 @@ def owner_dashboard(request, landlord_id):
 
     if not bool(request.GET):
         today = timezone.now().date()
-        date_from_bank = "2025-12-31"
+        date_from_bank = "2026-01-01"
         date_to_bank = today.strftime("%Y-%m-%d")
 
     # --- THE BULLETPROOF COMPANY & BUILDING SHIELD ---
@@ -1346,7 +1346,7 @@ def owner_expenses(request, landlord_id):
 
     if not bool(request.GET):
         today = timezone.now().date()
-        date_from = "2025-01-01"
+        date_from = "2026-01-01"
         date_to = today.strftime("%Y-%m-%d")
 
     local_expenses = base_qs
