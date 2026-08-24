@@ -343,6 +343,9 @@ class OwnerExpense(models.Model):
     remarks = models.TextField(blank=True, null=True)
     narration = models.TextField(blank=True, null=True)
     is_cleared = models.BooleanField(default=False)
+    clearance_voucher_no = models.CharField(max_length=100, null=True, blank=True)
+    clearance_narration = models.TextField(null=True, blank=True)
+    clearance_amount = models.FloatField(null=True, blank=True)  # 🚀 ADD THIS
 
     class Meta:
         ordering = ['-date', '-id']

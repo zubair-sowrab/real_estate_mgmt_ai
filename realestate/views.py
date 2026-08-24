@@ -1327,7 +1327,6 @@ def owner_cashflow(request, landlord_id):
 from django.db.models import Q
 from collections import defaultdict
 
-
 @login_required(login_url='/login/')
 def owner_expenses(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
@@ -1343,13 +1342,11 @@ def owner_expenses(request, landlord_id):
     unit_filter = request.GET.get('unit', '').strip()
     search_query = request.GET.get('search', '').strip()
     sort_by = request.GET.get('sort', 'building').strip()
-
-    # 🚀 The missing status extraction logic
     status_filter = request.GET.get('status', 'all').strip()
 
     if not bool(request.GET):
         today = timezone.now().date()
-        date_from = "2026-01-01"
+        date_from = "2025-01-01"
         date_to = today.strftime("%Y-%m-%d")
 
     local_expenses = base_qs
@@ -1358,7 +1355,6 @@ def owner_expenses(request, landlord_id):
     if tower_filter: local_expenses = local_expenses.filter(tower_name__icontains=tower_filter)
     if unit_filter: local_expenses = local_expenses.filter(unit_name__icontains=unit_filter)
 
-    # 🚀 Apply the Clearance Status Filter dynamically
     if status_filter == 'cleared':
         local_expenses = local_expenses.filter(is_cleared=True)
     elif status_filter == 'uncleared':
@@ -1391,7 +1387,10 @@ def owner_expenses(request, landlord_id):
             'narration': exp.narration,
             'tower': exp.tower_name,
             'unit': exp.unit_name,
-            'is_cleared': exp.is_cleared
+            'is_cleared': exp.is_cleared,
+            'clearance_voucher': exp.clearance_voucher_no or '',
+            'clearance_narration': exp.clearance_narration or '',
+            'clearance_amount': exp.clearance_amount or 0.0  # 🚀 Included here
         }
 
         if sort_by == 'building':
@@ -1417,6 +1416,9 @@ def owner_expenses(request, landlord_id):
                             'supplier': e['supplier'],
                             'amount': 0.0,
                             'is_cleared': e['is_cleared'],
+                            'clearance_voucher': e['clearance_voucher'],
+                            'clearance_narration': e['clearance_narration'],
+                            'clearance_amount': e['clearance_amount'],  # 🚀 Included in Hierarchy Parent
                             'items': []
                         }
                     grouped_exps[key]['amount'] += e['amount']
@@ -1442,6 +1444,9 @@ def owner_expenses(request, landlord_id):
                     'unit': e['unit'],
                     'amount': 0.0,
                     'is_cleared': e['is_cleared'],
+                    'clearance_voucher': e['clearance_voucher'],
+                    'clearance_narration': e['clearance_narration'],
+                    'clearance_amount': e['clearance_amount'],  # 🚀 Included in Flat Grouping
                     'items': []
                 }
             grouped_exps[key]['amount'] += e['amount']
@@ -1457,8 +1462,7 @@ def owner_expenses(request, landlord_id):
         elif sort_by == 'asc':
             flat_expenses.sort(key=lambda x: x['amount'])
 
-    unique_towers = base_qs.exclude(tower_name__isnull=True).values_list('tower_name', flat=True).distinct().order_by(
-        'tower_name')
+    unique_towers = base_qs.exclude(tower_name__isnull=True).values_list('tower_name', flat=True).distinct().order_by('tower_name')
 
     return render(request, 'realestate/owner_expenses.html', {
         'landlord': landlord,
@@ -1473,12 +1477,11 @@ def owner_expenses(request, landlord_id):
             'unit': unit_filter,
             'search': search_query,
             'sort': sort_by,
-            'status': status_filter  # 🚀 Pass status back so the dropdown remembers the selection
+            'status': status_filter
         },
         'notifications': get_dynamic_notifications(landlord),
         'notif_count': len(get_dynamic_notifications(landlord))
     })
-
 
 import re
 from django.db.models import Sum, Prefetch
