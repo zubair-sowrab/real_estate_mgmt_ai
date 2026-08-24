@@ -40,6 +40,28 @@
     .ybn-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
     .ybn-table th { background-color: #1e293b; color: #fff; padding: 10px 20px; text-align: left; }
     .ybn-table td { padding: 12px 20px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+
+
+
+    /* 🚀 Responsive Mobile Fixes */
+    .table-responsive {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    }
+    .ybn-table {
+        min-width: 750px; /* Prevents the table from crushing on mobile */
+    }
+    .inner-table {
+        min-width: 500px;
+    }
+
+    @media (max-width: 768px) {
+        .ybn-container { padding: 10px; }
+        .ybn-filter-row { flex-direction: column; align-items: stretch; }
+        .ybn-filter-group { min-width: 100%; }
+    }
+
 </style>
 
 <div class="ybn-container">
@@ -129,7 +151,7 @@
                         <span class="ybn-badge-secondary">AED {{ unit.total|floatformat:2|intcomma }}</span>
                     </summary>
 
-                    <div style="padding: 15px; background: #f8fafc;">
+                    <div class="table-responsive" style="padding: 15px; background: #f8fafc;">
                         <table class="ybn-table">
                             <thead>
                                 <tr>
@@ -168,8 +190,8 @@
 </td>                                   </tr>
                                     <tr id="grp_bldg_{{ forloop.parentloop.counter }}_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
                                         <td colspan="5" style="padding: 0;">
-                                            <div style="padding: 10px 20px 10px 40px; border-left: 3px solid #3b82f6;">
-                                                <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                            <div class="table-responsive" style="padding: 10px 10px 10px 20px; border-left: 3px solid #3b82f6;">
+    <table class="inner-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
                                                     {% for child in exp.items %}
                                                     <tr>
                                                         <td style="width: 25%; color: #64748b; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.voucher }}</td>
@@ -240,7 +262,7 @@
     {% else %}
 
         <!-- FLAT TABLE VIEW (Date / Descending / Ascending) -->
-        <div style="padding: 15px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);">
+<div class="table-responsive" style="padding: 15px; background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.04);">
             <table class="ybn-table">
                 <thead>
                     <tr>
@@ -284,8 +306,8 @@
 </td>               </tr>
                         <tr id="grp_flat_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
                             <td colspan="6" style="padding: 0;">
-                                <div style="padding: 10px 20px 10px 40px; border-left: 3px solid #3b82f6;">
-                                    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                <div class="table-responsive" style="padding: 10px 10px 10px 20px; border-left: 3px solid #3b82f6;">
+    <table class="inner-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
                                         {% for child in exp.items %}
                                         <tr>
                                             <td style="width: 25%; color: #64748b; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.voucher }}</td>
