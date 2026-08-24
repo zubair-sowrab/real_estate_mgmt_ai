@@ -342,6 +342,7 @@ class OwnerExpense(models.Model):
     unit_name = models.CharField(max_length=255, blank=True, null=True)
     remarks = models.TextField(blank=True, null=True)
     narration = models.TextField(blank=True, null=True)
+    is_cleared = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-date', '-id']

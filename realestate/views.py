@@ -1335,7 +1335,6 @@ def owner_expenses(request, landlord_id):
         if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
             return HttpResponseForbidden("<h1>403</h1>")
 
-    # The sync script has already filtered strictly for building-related records
     base_qs = OwnerExpense.objects.filter(landlord=landlord)
 
     date_from = request.GET.get('date_from', '').strip()
@@ -1345,15 +1344,26 @@ def owner_expenses(request, landlord_id):
     search_query = request.GET.get('search', '').strip()
     sort_by = request.GET.get('sort', 'building').strip()
 
+    # 🚀 The missing status extraction logic
+    status_filter = request.GET.get('status', 'all').strip()
+
     if not bool(request.GET):
         today = timezone.now().date()
-        date_from = today.replace(day=1).strftime("%Y-%m-%d")
+        date_from = "2026-01-01"
         date_to = today.strftime("%Y-%m-%d")
+
     local_expenses = base_qs
     if date_from: local_expenses = local_expenses.filter(date__gte=date_from)
     if date_to: local_expenses = local_expenses.filter(date__lte=date_to)
     if tower_filter: local_expenses = local_expenses.filter(tower_name__icontains=tower_filter)
     if unit_filter: local_expenses = local_expenses.filter(unit_name__icontains=unit_filter)
+
+    # 🚀 Apply the Clearance Status Filter dynamically
+    if status_filter == 'cleared':
+        local_expenses = local_expenses.filter(is_cleared=True)
+    elif status_filter == 'uncleared':
+        local_expenses = local_expenses.filter(is_cleared=False)
+
     if search_query:
         local_expenses = local_expenses.filter(
             Q(supplier__icontains=search_query) |
@@ -1369,8 +1379,6 @@ def owner_expenses(request, landlord_id):
     for exp in local_expenses:
         amt = float(exp.amount)
         total_expenses += amt
-
-        # 🚀 Extract base voucher number (stripping the unique -R database suffix)
         base_v_no = exp.voucher_no.split('-R')[0] if '-R' in exp.voucher_no else exp.voucher_no
 
         exp_dict = {
@@ -1382,7 +1390,8 @@ def owner_expenses(request, landlord_id):
             'remarks': exp.remarks,
             'narration': exp.narration,
             'tower': exp.tower_name,
-            'unit': exp.unit_name
+            'unit': exp.unit_name,
+            'is_cleared': exp.is_cleared
         }
 
         if sort_by == 'building':
@@ -1393,7 +1402,6 @@ def owner_expenses(request, landlord_id):
     final_data = []
     flat_expenses = []
 
-    # 🚀 GROUPING ENGINE: Fuses the fragments together purely for UI visualization
     if sort_by == 'building':
         for tower, units_dict in expenses_hierarchy.items():
             tower_total = 0
@@ -1408,6 +1416,7 @@ def owner_expenses(request, landlord_id):
                             'voucher': e['base_voucher'],
                             'supplier': e['supplier'],
                             'amount': 0.0,
+                            'is_cleared': e['is_cleared'],
                             'items': []
                         }
                     grouped_exps[key]['amount'] += e['amount']
@@ -1432,13 +1441,13 @@ def owner_expenses(request, landlord_id):
                     'tower': e['tower'],
                     'unit': e['unit'],
                     'amount': 0.0,
+                    'is_cleared': e['is_cleared'],
                     'items': []
                 }
             grouped_exps[key]['amount'] += e['amount']
             grouped_exps[key]['items'].append(e)
 
         flat_expenses = list(grouped_exps.values())
-
         if sort_by == 'date':
             flat_expenses.sort(key=lambda x: x['date'], reverse=True)
         elif sort_by == 'date_asc':
@@ -1463,7 +1472,8 @@ def owner_expenses(request, landlord_id):
             'tower': tower_filter,
             'unit': unit_filter,
             'search': search_query,
-            'sort': sort_by
+            'sort': sort_by,
+            'status': status_filter  # 🚀 Pass status back so the dropdown remembers the selection
         },
         'notifications': get_dynamic_notifications(landlord),
         'notif_count': len(get_dynamic_notifications(landlord))

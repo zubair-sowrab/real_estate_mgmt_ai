@@ -70,6 +70,14 @@
                     </select>
                 </div>
                 <div class="ybn-filter-group">
+                    <label class="ybn-filter-label">Reimbursement Status</label>
+                    <select name="status" class="ybn-filter-input">
+                        <option value="all" {% if filters.status == 'all' %}selected{% endif %}>All Expenses</option>
+                        <option value="cleared" {% if filters.status == 'cleared' %}selected{% endif %}>Cleared (Reimbursed)</option>
+                        <option value="uncleared" {% if filters.status == 'uncleared' %}selected{% endif %}>Uncleared (Pending)</option>
+                    </select>
+                </div>
+                <div class="ybn-filter-group">
                     <label class="ybn-filter-label">Building</label>
                     <select name="tower" class="ybn-filter-input">
                         <option value="">All Buildings</option>
@@ -143,8 +151,22 @@
                                         </td>
                                         <td style="font-weight: 600;">{{ exp.supplier }}</td>
                                         <td><em style="color: #64748b; font-size: 0.85rem;"><i class="fa-solid fa-chevron-down" style="margin-right: 5px;"></i>Multiple entries. Click to expand.</em></td>
-                                        <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
-                                    </tr>
+<td style="text-align: right; vertical-align: middle;">
+    <div style="font-size: 1.05rem; font-weight: 800; color: {% if exp.is_cleared %}#059669{% else %}#dc2626{% endif %};">
+        {{ exp.amount|floatformat:2|intcomma }}
+    </div>
+    <div style="margin-top: 5px;">
+        {% if exp.is_cleared %}
+            <span style="background: #d1fae5; color: #065f46; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #34d399; display: inline-block;">
+                <i class="fa-solid fa-check-circle" style="margin-right: 3px;"></i> Reimbursed
+            </span>
+        {% else %}
+            <span style="background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #f87171; display: inline-block;">
+                <i class="fa-solid fa-clock" style="margin-right: 3px;"></i> Pending
+            </span>
+        {% endif %}
+    </div>
+</td>                                   </tr>
                                     <tr id="grp_bldg_{{ forloop.parentloop.counter }}_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
                                         <td colspan="5" style="padding: 0;">
                                             <div style="padding: 10px 20px 10px 40px; border-left: 3px solid #3b82f6;">
@@ -156,8 +178,22 @@
                                                             {% if child.remarks and child.remarks != 'None' %}<span style="color: #475569; font-weight:600;">Doc:</span> {{ child.remarks }}<br>{% endif %}
                                                             {% if child.narration and child.narration != 'None' %}<span style="color: #475569; font-weight:600;">Line:</span> {{ child.narration }}{% endif %}
                                                         </td>
-                                                        <td style="width: 15%; text-align: right; color: #dc2626; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.amount|floatformat:2|intcomma }}</td>
-                                                    </tr>
+<td style="width: 15%; text-align: right; vertical-align: top; padding: 8px 0; border-bottom: 1px dashed #cbd5e1;">
+    <div style="font-weight: 700; color: {% if child.is_cleared %}#059669{% else %}#dc2626{% endif %};">
+        {{ child.amount|floatformat:2|intcomma }}
+    </div>
+    <div style="margin-top: 3px;">
+        {% if child.is_cleared %}
+            <span style="background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; display: inline-block;">
+                <i class="fa-solid fa-check" style="margin-right: 2px;"></i> Reimbursed
+            </span>
+        {% else %}
+            <span style="background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; display: inline-block;">
+                <i class="fa-solid fa-clock" style="margin-right: 2px;"></i> Pending
+            </span>
+        {% endif %}
+    </div>
+</td>                                                  </tr>
                                                     {% endfor %}
                                                 </table>
                                             </div>
@@ -176,8 +212,22 @@
                                                 {% endfor %}
                                             </div>
                                         </td>
-                                        <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
-                                    </tr>
+<td style="text-align: right; vertical-align: middle;">
+    <div style="font-size: 1.05rem; font-weight: 800; color: {% if exp.is_cleared %}#059669{% else %}#dc2626{% endif %};">
+        {{ exp.amount|floatformat:2|intcomma }}
+    </div>
+    <div style="margin-top: 5px;">
+        {% if exp.is_cleared %}
+            <span style="background: #d1fae5; color: #065f46; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #34d399; display: inline-block;">
+                <i class="fa-solid fa-check-circle" style="margin-right: 3px;"></i> Reimbursed
+            </span>
+        {% else %}
+            <span style="background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #f87171; display: inline-block;">
+                <i class="fa-solid fa-clock" style="margin-right: 3px;"></i> Pending
+            </span>
+        {% endif %}
+    </div>
+</td>                             </tr>
                                     {% endif %}
                                 {% endfor %}
                             </tbody>
@@ -219,8 +269,22 @@
                             </td>
                             <td style="font-weight: 600;">{{ exp.supplier }}</td>
                             <td><em style="color: #64748b; font-size: 0.85rem;"><i class="fa-solid fa-chevron-down" style="margin-right: 5px;"></i>Multiple entries. Click to expand.</em></td>
-                            <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
-                        </tr>
+<td style="text-align: right; vertical-align: middle;">
+    <div style="font-size: 1.05rem; font-weight: 800; color: {% if exp.is_cleared %}#059669{% else %}#dc2626{% endif %};">
+        {{ exp.amount|floatformat:2|intcomma }}
+    </div>
+    <div style="margin-top: 5px;">
+        {% if exp.is_cleared %}
+            <span style="background: #d1fae5; color: #065f46; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #34d399; display: inline-block;">
+                <i class="fa-solid fa-check-circle" style="margin-right: 3px;"></i> Reimbursed
+            </span>
+        {% else %}
+            <span style="background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #f87171; display: inline-block;">
+                <i class="fa-solid fa-clock" style="margin-right: 3px;"></i> Pending
+            </span>
+        {% endif %}
+    </div>
+</td>               </tr>
                         <tr id="grp_flat_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
                             <td colspan="6" style="padding: 0;">
                                 <div style="padding: 10px 20px 10px 40px; border-left: 3px solid #3b82f6;">
@@ -232,8 +296,22 @@
                                                 {% if child.remarks and child.remarks != 'None' %}<span style="color: #475569; font-weight:600;">Doc:</span> {{ child.remarks }}<br>{% endif %}
                                                 {% if child.narration and child.narration != 'None' %}<span style="color: #475569; font-weight:600;">Line:</span> {{ child.narration }}{% endif %}
                                             </td>
-                                            <td style="width: 15%; text-align: right; color: #dc2626; padding: 6px 0; border-bottom: 1px dashed #cbd5e1;">{{ child.amount|floatformat:2|intcomma }}</td>
-                                        </tr>
+<td style="width: 15%; text-align: right; vertical-align: top; padding: 8px 0; border-bottom: 1px dashed #cbd5e1;">
+    <div style="font-weight: 700; color: {% if child.is_cleared %}#059669{% else %}#dc2626{% endif %};">
+        {{ child.amount|floatformat:2|intcomma }}
+    </div>
+    <div style="margin-top: 3px;">
+        {% if child.is_cleared %}
+            <span style="background: #d1fae5; color: #065f46; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; display: inline-block;">
+                <i class="fa-solid fa-check" style="margin-right: 2px;"></i> Reimbursed
+            </span>
+        {% else %}
+            <span style="background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; display: inline-block;">
+                <i class="fa-solid fa-clock" style="margin-right: 2px;"></i> Pending
+            </span>
+        {% endif %}
+    </div>
+</td>                                       </tr>
                                         {% endfor %}
                                     </table>
                                 </div>
@@ -256,8 +334,22 @@
                                     {% endfor %}
                                 </div>
                             </td>
-                            <td style="text-align: right; font-weight: 700; color: #dc2626;">{{ exp.amount|floatformat:2|intcomma }}</td>
-                        </tr>
+<td style="text-align: right; vertical-align: middle;">
+    <div style="font-size: 1.05rem; font-weight: 800; color: {% if exp.is_cleared %}#059669{% else %}#dc2626{% endif %};">
+        {{ exp.amount|floatformat:2|intcomma }}
+    </div>
+    <div style="margin-top: 5px;">
+        {% if exp.is_cleared %}
+            <span style="background: #d1fae5; color: #065f46; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #34d399; display: inline-block;">
+                <i class="fa-solid fa-check-circle" style="margin-right: 3px;"></i> Reimbursed
+            </span>
+        {% else %}
+            <span style="background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; border: 1px solid #f87171; display: inline-block;">
+                <i class="fa-solid fa-clock" style="margin-right: 3px;"></i> Pending
+            </span>
+        {% endif %}
+    </div>
+</td>                        </tr>
                         {% endif %}
                     {% endfor %}
                 </tbody>
