@@ -165,7 +165,7 @@
                            <tbody style="background: white;">
                                 {% for exp in unit.expenses %}
                                     {% if exp.items|length > 1 %}
-                                    <tr style="cursor: pointer; background: #f8fafc; border-left: 3px solid #3b82f6;" onclick="document.getElementById('grp_bldg_{{ forloop.parentloop.counter }}_{{ forloop.counter }}').classList.toggle('hidden')">
+                                    <tr style="cursor: pointer; background: #f8fafc; border-left: 3px solid #3b82f6;" onclick="document.getElementById('grp_bldg_{{ forloop.parentloop.parentloop.counter }}_{{ forloop.parentloop.counter }}_{{ forloop.counter }}').classList.toggle('hidden')">
                                         <td style="color: #64748b;">{{ exp.date }}</td>
                                         <td style="color: #2563eb; font-weight: 600;">
                                             <i class="fa-solid fa-folder-tree" style="margin-right: 5px;"></i>{{ exp.voucher }}
@@ -188,7 +188,7 @@
         {% endif %}
     </div>
 </td>                                   </tr>
-                                    <tr id="grp_bldg_{{ forloop.parentloop.counter }}_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
+                                    <tr id="grp_bldg_{{ forloop.parentloop.parentloop.counter }}_{{ forloop.parentloop.counter }}_{{ forloop.counter }}" class="hidden" style="background: #f1f5f9;">
                                         <td colspan="5" style="padding: 0;">
                                             <div class="table-responsive" style="padding: 10px 10px 10px 20px; border-left: 3px solid #3b82f6;">
     <table class="inner-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
