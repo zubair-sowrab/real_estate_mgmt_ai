@@ -64,6 +64,10 @@
 
 </style>
 
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+
 <div class="ybn-container">
     <div class="ybn-header">
         <h2 class="ybn-title">General Ledger Expenses</h2>
@@ -75,11 +79,11 @@
             <div class="ybn-filter-row">
                 <div class="ybn-filter-group">
                     <label class="ybn-filter-label">From Date</label>
-                    <input type="date" name="date_from" class="ybn-filter-input" value="{{ filters.date_from }}">
+                    <input type="text" name="date_from" class="ybn-filter-input date-picker" value="{{ filters.date_from }}" placeholder="DD/MM/YYYY">
                 </div>
                 <div class="ybn-filter-group">
                     <label class="ybn-filter-label">To Date</label>
-                    <input type="date" name="date_to" class="ybn-filter-input" value="{{ filters.date_to }}">
+                    <input type="text" name="date_to" class="ybn-filter-input date-picker" value="{{ filters.date_to }}" placeholder="DD/MM/YYYY">
                 </div>
                 <div class="ybn-filter-group">
                     <label class="ybn-filter-label">View By</label>
@@ -377,4 +381,17 @@
     {% endif %}
 
 </div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        flatpickr(".date-picker", {
+            altInput: true,
+            altFormat: "d/m/Y",  /* What the user sees visually (DD/MM/YYYY) */
+            dateFormat: "Y-m-d", /* What gets sent to Django and views.py */
+            allowInput: true
+        });
+    });
+</script>
 {% endblock %}
