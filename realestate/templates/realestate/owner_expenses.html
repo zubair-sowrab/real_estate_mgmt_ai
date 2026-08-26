@@ -2,7 +2,47 @@
 {% load humanize %}
 
 {% block content %}
+{% if is_modal %}
 <style>
+    /* 🚀 Hides the main navigation sidebars and headers when viewed inside the popup */
+    #sidebar, .sidebar, aside, header, .header, .navbar, .topbar, .top-header { display: none !important; }
+    #main-wrapper, .page-wrapper, .main-content, body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #f8fafc !important; }
+    .ybn-container { padding: 15px !important; }
+
+    /* 🚀 FIX: Hide ONLY the "General Ledger Expenses" title, but KEEP the Total amount visible! */
+    .ybn-title { display: none !important; }
+    .ybn-header { border-bottom: none !important; padding-bottom: 0 !important; margin-bottom: 15px !important; justify-content: flex-end !important; }
+</style>
+{% endif %}
+
+
+<style>
+    /* Modal Styles */
+    .ybn-modal-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(15, 23, 42, 0.75); z-index: 99999;
+        align-items: center; justify-content: center; backdrop-filter: blur(4px);
+    }
+    .ybn-modal-content {
+        background: #f8fafc; width: 95%; max-width: 1400px; height: 90vh;
+        border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+    .ybn-modal-header {
+        padding: 15px 25px; background: #1e293b; color: white;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .ybn-modal-close {
+        background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: color 0.2s;
+    }
+    .ybn-modal-close:hover { color: #ef4444; }
+    .ybn-modal-body { flex: 1; padding: 0; }
+    .ybn-modal-body iframe { width: 100%; height: 100%; border: none; }
+
+
+
+
+
     .ybn-container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     .ybn-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; }
 
@@ -73,6 +113,21 @@
         <h2 class="ybn-title">General Ledger Expenses</h2>
         <h4 class="ybn-total text-danger">Total: AED {{ total_expenses|floatformat:2|intcomma }}</h4>
     </div>
+
+    {% if not is_modal %}
+    <div style="margin-bottom: 20px; display: flex; gap: 12px;">
+        <button onclick="openMonthModal('previous')" style="background: #475569; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;">
+            <i class="fa-solid fa-calendar-minus" style="margin-right: 8px;"></i>Previous Month
+        </button>
+        <button onclick="openMonthModal('current')" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s;">
+            <i class="fa-solid fa-calendar-day" style="margin-right: 8px;"></i>Current Month
+        </button>
+    </div>
+    {% endif %}
+
+
+
+
 <!-- Filters -->
     <div class="ybn-filter-card">
         <form method="GET">
@@ -393,5 +448,71 @@
             allowInput: true
         });
     });
+</script>
+
+
+
+
+<!-- 🚀 THE MODAL DIALOG -->
+    <div id="monthModal" class="ybn-modal-overlay">
+        <div class="ybn-modal-content">
+            <div class="ybn-modal-header">
+                <h3 id="monthModalTitle" style="margin: 0; font-size: 1.25rem; font-weight: 600;">Expenses</h3>
+                <button class="ybn-modal-close" onclick="closeMonthModal()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="ybn-modal-body">
+                <iframe id="modalIframe"></iframe>
+            </div>
+        </div>
+    </div>
+
+</div> <!-- End of ybn-container -->
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        flatpickr(".date-picker", {
+            altInput: true, altFormat: "d/m/Y", dateFormat: "Y-m-d", allowInput: true
+        });
+    });
+
+    // 🚀 THE DIALOG BOX LOGIC
+    function openMonthModal(type) {
+        let today = new Date();
+        let y = today.getFullYear();
+        let m = today.getMonth();
+        let firstDay, lastDay, titleText;
+
+        if (type === 'current') {
+            firstDay = new Date(y, m, 1);
+            lastDay = new Date(y, m + 1, 0); // Last day of current month
+            titleText = "Current Month Expenses (" + firstDay.toLocaleString('default', { month: 'long', year: 'numeric' }) + ")";
+        } else {
+            firstDay = new Date(y, m - 1, 1);
+            lastDay = new Date(y, m, 0); // Last day of previous month
+            titleText = "Previous Month Expenses (" + firstDay.toLocaleString('default', { month: 'long', year: 'numeric' }) + ")";
+        }
+
+        // Format to YYYY-MM-DD for the Django backend filter
+        let formatDate = (d) => {
+            let month = '' + (d.getMonth() + 1);
+            let day = '' + d.getDate();
+            if (month.length < 2) month = '0' + month;
+            if (day.length < 2) day = '0' + day;
+            return [d.getFullYear(), month, day].join('-');
+        };
+
+        // Inject the dates and the `is_modal=1` flag into the URL
+        let targetUrl = window.location.pathname + `?date_from=${formatDate(firstDay)}&date_to=${formatDate(lastDay)}&is_modal=1`;
+
+        document.getElementById('monthModalTitle').innerText = titleText;
+        document.getElementById('modalIframe').src = targetUrl;
+        document.getElementById('monthModal').style.display = 'flex';
+    }
+
+    function closeMonthModal() {
+        document.getElementById('monthModal').style.display = 'none';
+        document.getElementById('modalIframe').src = ''; // Clear iframe to stop background loading
+    }
 </script>
 {% endblock %}

@@ -3,6 +3,7 @@ from django.db.models import Sum, Q, Prefetch
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models.functions import TruncMonth, TruncYear
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 import re
 from django.utils import timezone
 
@@ -1328,12 +1329,14 @@ from django.db.models import Q
 from collections import defaultdict
 
 @login_required(login_url='/login/')
+@xframe_options_sameorigin
 def owner_expenses(request, landlord_id):
     landlord = get_object_or_404(Landlord, id=landlord_id)
     if not request.user.is_superuser:
         if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
             return HttpResponseForbidden("<h1>403</h1>")
 
+    is_modal = request.GET.get('is_modal') == '1'
     base_qs = OwnerExpense.objects.filter(landlord=landlord)
 
     date_from = request.GET.get('date_from', '').strip()
@@ -1480,7 +1483,8 @@ def owner_expenses(request, landlord_id):
             'status': status_filter
         },
         'notifications': get_dynamic_notifications(landlord),
-        'notif_count': len(get_dynamic_notifications(landlord))
+        'notif_count': len(get_dynamic_notifications(landlord)),
+        'is_modal': is_modal,
     })
 
 import re
