@@ -87,3 +87,23 @@ from .models import PropertyAlias
 class PropertyAliasAdmin(admin.ModelAdmin):
     list_display = ('keyword', 'target_name')
     search_fields = ('keyword', 'target_name')
+
+
+
+from .models import OwnerExpense, ContractLedger, ApprovalDocument
+
+@admin.register(OwnerExpense)
+class OwnerExpenseAdmin(admin.ModelAdmin):
+    list_display = ('voucher_no', 'date', 'amount', 'supplier', 'tower_name', 'is_cleared')
+    list_filter = ('is_cleared', 'date', 'tower_name')
+    search_fields = ('voucher_no', 'supplier', 'narration')
+
+@admin.register(ContractLedger)
+class ContractLedgerAdmin(admin.ModelAdmin):
+    list_display = ('doc_no', 'doc_date', 'amount', 'is_debit', 'contract')
+    search_fields = ('doc_no', 'particular')
+
+@admin.register(ApprovalDocument)
+class ApprovalDocumentAdmin(admin.ModelAdmin):
+    list_display = ('doc_no', 'doc_date', 'amount', 'status')
+    list_filter = ('status',)

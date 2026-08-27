@@ -5,7 +5,7 @@ pact_database_blueprint.txt
 xray.py
 .env
 *.env
-db.sqlite3
+
 secrets.json
 
 # --- Python Virtual Environments & Packages ---

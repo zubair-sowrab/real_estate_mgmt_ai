@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import ChatbotAPIView
+
 
 
 urlpatterns = [
@@ -48,5 +48,5 @@ path('owner/<int:landlord_id>/health/', views.tenant_health, name='tenant_health
 # At the top of urls.py
 
 # Inside your urlpatterns list[cite: 3], add:
-path('api/chatbot/', ChatbotAPIView.as_view(), name='api_chatbot'),
+
 ]
