@@ -1,0 +1,115 @@
+{% extends 'realestate/base.html' %}
+{% load humanize %}
+
+{% block content %}
+{% if is_modal %}
+<style>
+    #sidebar, .sidebar, aside, header, .header, .navbar, .topbar, .top-header { display: none !important; }
+    #main-wrapper, .page-wrapper, .main-content, body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #f8fafc !important; }
+</style>
+{% endif %}
+
+<style>
+    .report-container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .total-badge { background: #fffbeb; border: 1px solid #fcd34d; color: #b45309; padding: 10px 20px; border-radius: 8px; font-size: 1.25rem; font-weight: 700; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+
+    .filter-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+    .filter-group { display: flex; flex-direction: column; flex: 1; min-width: 150px; }
+    .filter-label { font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 5px; }
+    .filter-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background-color: #f8fafc; }
+    .btn-primary { background-color: #2563eb; color: white; border: none; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; text-align: center; }
+    .btn-primary:hover { background-color: #1d4ed8; }
+
+    .table-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .ybn-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .ybn-table th { background-color: #1e293b; color: #fff; padding: 12px 20px; text-align: left; }
+    .ybn-table td { padding: 12px 20px; border-bottom: 1px solid #e2e8f0; vertical-align: middle; }
+</style>
+
+<div class="report-container">
+
+    <div class="header-bar">
+        <h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;"><i class="fa-solid fa-clock-rotate-left mr-2" style="color: #d97706;"></i> Pending PDCs</h2>
+        <div class="total-badge">Total: AED {{ total_pdc_amount|floatformat:2|intcomma }}</div>
+    </div>
+
+    <!-- Dynamic Filters -->
+    <div class="filter-card">
+        <form method="GET">
+            {% if is_modal %}<input type="hidden" name="is_modal" value="1">{% endif %}
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label class="filter-label">Property</label>
+                    <select name="property" class="filter-input">
+                        <option value="">All Properties</option>
+                        {% for p in properties %}
+                            <option value="{{ p.id }}" {% if filters.property == p.id|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Due From</label>
+                    <input type="date" name="date_from" class="filter-input" value="{{ filters.date_from }}">
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Due To</label>
+                    <input type="date" name="date_to" class="filter-input" value="{{ filters.date_to }}">
+                </div>
+                <div class="filter-group" style="flex: 0.5;">
+                    <button type="submit" class="btn-primary" style="width: 100%; margin-top: 24px;">Filter</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Raw Data Table -->
+    <div class="table-card">
+        <div style="overflow-x: auto;">
+            <table class="ybn-table">
+                <thead>
+                    <tr>
+                        <th style="width: 12%;">Due Date</th>
+                        <th style="width: 20%;">Property & Unit</th>
+                        <th style="width: 25%;">Tenant Name</th>
+                        <th style="width: 18%;">Cheque Details</th>
+                        <th style="width: 15%; text-align: right;">Amount (AED)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in pdcs %}
+                    <tr>
+                        <td style="color: #d97706; font-weight: 700;">{{ c.due_date|date:"d M Y" }}</td>
+                        <td>
+                            <div style="font-weight: 600; color: #1e293b;">{{ c.contract.unit.property_asset.name }}</div>
+                            <div style="font-size: 0.85rem; color: #64748b;"><i class="fa-solid fa-door-open" style="margin-right:4px;"></i>Unit {{ c.contract.unit.unit_number }}</div>
+                        </td>
+                        <td style="font-weight: 600; color: #2563eb;">{{ c.contract.tenant.full_name }}</td>
+                        <td>
+                            {% if c.cheque_number and c.cheque_number != 'None' %}
+                                <div style="font-weight: 600; color: #475569;"><i class="fa-solid fa-money-check" style="margin-right: 5px;"></i>{{ c.cheque_number }}</div>
+                            {% else %}
+                                <span style="color: #94a3b8; font-style: italic;">Awaiting Details</span>
+                            {% endif %}
+                        </td>
+                        <td style="text-align: right; font-weight: 800; font-size: 1.1rem; color: #1e293b;">
+                            {{ c.amount|floatformat:2|intcomma }}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 40px; color: #64748b;">
+                            <i class="fa-solid fa-check-circle" style="font-size: 2rem; color: #10b981; margin-bottom: 10px; display: block;"></i>
+                            No pending PDCs found for this criteria!
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

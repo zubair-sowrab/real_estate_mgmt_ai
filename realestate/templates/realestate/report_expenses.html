@@ -1,0 +1,155 @@
+{% extends 'realestate/base.html' %}
+{% load humanize %}
+
+{% block content %}
+{% if is_modal %}
+<style>
+    /* Clean Modal View */
+    #sidebar, .sidebar, aside, header, .header, .navbar, .topbar, .top-header { display: none !important; }
+    #main-wrapper, .page-wrapper, .main-content, body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #f8fafc !important; }
+</style>
+{% endif %}
+
+<style>
+    .report-container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+
+    .header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+
+    .filter-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 15px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .filter-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+    .filter-group { display: flex; flex-direction: column; flex: 1; min-width: 150px; }
+    .filter-label { font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 5px; }
+    .filter-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background-color: #f8fafc; }
+
+    .btn-primary { background-color: #2563eb; color: white; border: none; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .btn-primary:hover { background-color: #1d4ed8; }
+    .btn-print { background-color: #475569; color: white; border: none; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; }
+    .btn-print:hover { background-color: #334155; }
+
+    /* 3-Column Layout */
+    .comparison-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+
+    .month-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .month-title { text-align: center; font-size: 1.2rem; font-weight: 700; color: #1e293b; margin-bottom: 5px; padding-bottom: 15px; border-bottom: 1px solid #e2e8f0; }
+    .month-total { text-align: center; font-size: 1.4rem; font-weight: 800; color: #dc2626; margin-bottom: 20px; }
+
+    .chart-wrapper { height: 220px; position: relative; margin-bottom: 20px; }
+
+    .ybn-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .ybn-table th { background-color: #f8fafc; color: #475569; padding: 10px; text-align: left; border-bottom: 2px solid #cbd5e1; }
+    .ybn-table td { padding: 10px; border-bottom: 1px solid #e2e8f0; }
+
+    /* 🚀 PRINT STYLESHEET (For generating PDFs) */
+    @media print {
+        .no-print { display: none !important; }
+        .report-container { padding: 0; }
+        .month-card { border: none; box-shadow: none; break-inside: avoid; }
+        .comparison-grid { gap: 10px; }
+        body { background: white !important; }
+    }
+</style>
+
+<div class="report-container">
+
+    <div class="header-bar">
+        <h2 style="margin: 0; color: #1e293b; font-size: 1.4rem;"><i class="fa-solid fa-file-invoice-dollar mr-2" style="color: #dc2626;"></i> Expense Comparison Report</h2>
+        <button class="btn-print no-print" onclick="window.print()"><i class="fa-solid fa-print mr-2"></i> Print / Export PDF</button>
+    </div>
+
+    <!-- Dynamic Filters (Hidden on Print) -->
+    <div class="filter-card no-print">
+        <form method="GET">
+            {% if is_modal %}<input type="hidden" name="is_modal" value="1">{% endif %}
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label class="filter-label">Month 1 (Oldest)</label>
+                    <input type="month" name="month3" class="filter-input" value="{{ report_data.0.month_val }}">
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Month 2</label>
+                    <input type="month" name="month2" class="filter-input" value="{{ report_data.1.month_val }}">
+                </div>
+                <div class="filter-group">
+                    <label class="filter-label">Month 3 (Newest)</label>
+                    <input type="month" name="month1" class="filter-input" value="{{ report_data.2.month_val }}">
+                </div>
+                <div class="filter-group" style="flex: 0.5;">
+                    <button type="submit" class="btn-primary" style="width: 100%; margin-top: 24px;">Compare</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- 3-Column Comparison Grid -->
+    <div class="comparison-grid">
+        {% for m in report_data %}
+        <div class="month-card">
+            <div class="month-title">{{ m.month_name }}</div>
+            <div class="month-total">AED {{ m.total|floatformat:2|intcomma }}</div>
+
+            <div class="chart-wrapper">
+                <canvas id="chart_{{ forloop.counter0 }}"></canvas>
+            </div>
+
+            <table class="ybn-table">
+                <thead>
+                    <tr>
+                        <th>Building / Category</th>
+                        <th style="text-align: right;">Amount</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in m.raw_data %}
+                    <tr>
+                        <td style="font-weight: 600; color: #334155;">{{ row.tower }}</td>
+                        <td style="text-align: right; color: #dc2626; font-weight: 700;">{{ row.amount|floatformat:2|intcomma }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="2" style="text-align: center; color: #94a3b8; padding: 20px;">No expenses recorded.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const chartData = {{ report_data_json|safe }};
+    const colors = ['#ef4444', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#64748b', '#14b8a6', '#f43f5e'];
+
+    chartData.forEach((dataObj, index) => {
+        if (dataObj.labels.length > 0) {
+            new Chart(document.getElementById(`chart_${index}`).getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: dataObj.labels,
+                    datasets: [{
+                        data: dataObj.data,
+                        backgroundColor: colors.slice(0, dataObj.labels.length),
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }, // Hide legend to save space, data is in table below
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) { return ' AED ' + ctx.raw.toLocaleString(undefined, {minimumFractionDigits: 2}); }
+                            }
+                        }
+                    },
+                    cutout: '60%'
+                }
+            });
+        }
+    });
+</script>
+{% endblock %}

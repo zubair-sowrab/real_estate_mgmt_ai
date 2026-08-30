@@ -1,0 +1,288 @@
+{% extends 'realestate/base.html' %}
+{% load humanize %}
+
+{% block content %}
+{% if is_modal %}
+<style>
+    #sidebar, .sidebar, aside, header, .header, .navbar, .topbar, .top-header { display: none !important; }
+    #main-wrapper, .page-wrapper, .main-content, body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #f8fafc !important; }
+</style>
+{% endif %}
+
+<style>
+    .report-container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .header-bar { margin-bottom: 20px; }
+
+    .filter-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.04); }
+    .filter-input { padding: 10px 15px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.95rem; width: 100%; background: #fff; }
+    .filter-input:disabled { background: #f1f5f9; cursor: not-allowed; }
+
+    .btn-primary { background-color: #2563eb; color: white; border: none; padding: 11px 25px; font-weight: 700; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+    .btn-primary:hover { background-color: #1d4ed8; }
+    .btn-primary:disabled { background-color: #94a3b8; cursor: not-allowed; }
+
+    /* KPI Grid */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 15px; margin-bottom: 25px; }
+    .kpi-card { background: #fff; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .kpi-title { font-size: 0.85rem; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 8px; }
+    .kpi-val { font-size: 1.4rem; font-weight: 800; color: #1e293b; }
+
+    /* Progress Bar */
+    .progress-bg { background: #e2e8f0; border-radius: 20px; height: 12px; width: 100%; margin-top: 10px; overflow: hidden; }
+    .progress-fill { background: #2563eb; height: 100%; border-radius: 20px; transition: width 0.5s ease; }
+
+    /* Tables */
+    .table-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.02); margin-bottom: 25px; }
+    .table-header { background: #1e293b; color: white; padding: 12px 20px; font-weight: 700; font-size: 1.1rem; }
+    .ybn-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    .ybn-table th { background-color: #f8fafc; color: #475569; padding: 10px 20px; text-align: left; border-bottom: 2px solid #cbd5e1; }
+    .ybn-table td { padding: 10px 20px; border-bottom: 1px solid #e2e8f0; }
+</style>
+
+<div class="report-container">
+    <div class="header-bar">
+        <h2 style="margin: 0; color: #1e293b; font-size: 1.5rem;"><i class="fa-solid fa-user-check mr-2" style="color: #059669;"></i> Tenant Report</h2>
+    </div>
+
+    <!-- 🚀 CASCADING TENANT SELECTOR -->
+    <div class="filter-card">
+        <form method="GET" style="display: flex; flex-wrap: wrap; gap: 15px; width: 100%; align-items: flex-end;">
+            {% if is_modal %}<input type="hidden" name="is_modal" value="1">{% endif %}
+
+            <!-- Step 1: Building -->
+            <div style="flex: 1; min-width: 200px;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px;">1. Select Building</label>
+                <select id="buildingSelect" class="filter-input" onchange="updateUnits()">
+                    <option value="">-- Choose Building --</option>
+                </select>
+            </div>
+
+            <!-- Step 2: Unit -->
+            <div style="flex: 1; min-width: 150px;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px;">2. Select Unit</label>
+                <select id="unitSelect" class="filter-input" onchange="updateTenants()" disabled>
+                    <option value="">-- Choose Unit --</option>
+                </select>
+            </div>
+
+            <!-- Step 3: Tenant -->
+            <div style="flex: 1; min-width: 250px;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px;">3. Select Tenant</label>
+                <select id="tenantSelect" name="tenant" class="filter-input" disabled>
+                    <option value="">-- Choose Tenant --</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn-primary" id="submitBtn" disabled>Generate Report</button>
+        </form>
+    </div>
+
+    {% if tenant_data %}
+
+    <!-- Tenant Profile Header -->
+    <div style="margin-bottom: 20px; padding: 0 10px;">
+        <h3 style="margin: 0 0 5px 0; color: #2563eb; font-size: 1.6rem;">{{ tenant_data.tenant.full_name }}</h3>
+        <div style="color: #64748b; font-weight: 600;">
+            Current Unit: {{ tenant_data.latest_contract.unit.unit_number }} ({{ tenant_data.latest_contract.unit.property_asset.name }})
+        </div>
+    </div>
+
+    <!-- 🚀 KPI GRID -->
+    <div class="kpi-grid">
+        <!-- Contract Status -->
+        <div class="kpi-card" style="border-left: 4px solid {% if tenant_data.latest_contract.status == 'Active' %}#10b981{% else %}#ef4444{% endif %};">
+            <div class="kpi-title">Contract Status</div>
+            <div class="kpi-val">{{ tenant_data.latest_contract.status }}</div>
+            <div style="margin-top: 5px; font-size: 0.85rem; font-weight: 600; color: #64748b;">
+                {% if tenant_data.days_expired > 0 %}
+                    <span style="color: #ef4444;">Expired {{ tenant_data.days_expired }} days ago</span>
+                {% else %}
+                    <span style="color: #f59e0b;">{{ tenant_data.days_left }} days left</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Time Elapsed -->
+        <div class="kpi-card">
+            <div class="kpi-title">Time Elapsed</div>
+            <div class="kpi-val">{{ tenant_data.time_pct }}%</div>
+            <div class="progress-bg">
+                <div class="progress-fill" style="width: {{ tenant_data.time_pct }}%; background: {% if tenant_data.time_pct > 90 %}#ef4444{% elif tenant_data.time_pct > 75 %}#f59e0b{% else %}#2563eb{% endif %};"></div>
+            </div>
+        </div>
+
+        <!-- Financial Health -->
+        <div class="kpi-card">
+            <div class="kpi-title">Cleared Rent</div>
+            <div class="kpi-val" style="color: #10b981;">AED {{ tenant_data.cleared_rent|floatformat:0|intcomma }}</div>
+            <div style="margin-top: 5px; font-size: 0.85rem; font-weight: 600; color: #64748b;">
+                Out of AED {{ tenant_data.total_rent|floatformat:0|intcomma }} Target
+            </div>
+        </div>
+
+        <!-- Maintenance Load -->
+        <div class="kpi-card">
+            <div class="kpi-title">Maintenance Cost (Current Term)</div>
+            <div class="kpi-val" style="color: #dc2626;">AED {{ tenant_data.expenses|floatformat:0|intcomma }}</div>
+        </div>
+    </div>
+
+    <!-- 🚀 FULL LEDGER -->
+    <div class="table-card">
+        <div class="table-header"><i class="fa-solid fa-book-open mr-2"></i> Official Financial Ledger</div>
+        <div style="max-height: 400px; overflow-y: auto;">
+            <table class="ybn-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Doc No</th>
+                        <th>Particular</th>
+                        <th>Cheque No</th>
+                        <th style="text-align: right;">Debit (AED)</th>
+                        <th style="text-align: right;">Credit (AED)</th>
+                        <th style="text-align: right;">Running Bal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in tenant_data.ledger %}
+                    <tr style="{% if 'PDR' in entry.doc_no %}background: #fffbeb;{% endif %}">
+                        <td style="color: #64748b;">{{ entry.date|date:"d M Y" }}</td>
+                        <td style="font-weight: 600; color: {% if 'PDR' in entry.doc_no %}#d97706{% else %}#1e293b{% endif %};">{{ entry.doc_no }}</td>
+                        <td>{{ entry.particular }}</td>
+                        <td style="color: #475569;">{{ entry.chq_no|default:"-" }}</td>
+                        <td style="text-align: right; color: #1e293b; font-weight: 600;">{% if entry.debit > 0 %}{{ entry.debit|floatformat:2|intcomma }}{% else %}-{% endif %}</td>
+                        <td style="text-align: right; color: #10b981; font-weight: 600;">{% if entry.credit > 0 %}{{ entry.credit|floatformat:2|intcomma }}{% else %}-{% endif %}</td>
+                        <td style="text-align: right; font-weight: 800; color: #334155;">{{ entry.balance }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 20px;">No ledger entries found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 🚀 OLD CONTRACTS HISTORY -->
+    {% if tenant_data.old_contracts %}
+    <div class="table-card">
+        <div class="table-header" style="background: #475569;"><i class="fa-solid fa-file-contract mr-2"></i> Contract History</div>
+        <table class="ybn-table">
+            <thead>
+                <tr>
+                    <th>Term</th>
+                    <th>Property & Unit</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Rent Amount (AED)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in tenant_data.old_contracts %}
+                <tr>
+                    <td style="color: #1e293b; font-weight: 600;">{{ c.start_date|date:"M Y" }} - {{ c.end_date|date:"M Y" }}</td>
+                    <td>Unit {{ c.unit.unit_number }} ({{ c.unit.property_asset.name }})</td>
+                    <td><span style="background: #f1f5f9; color: #475569; padding: 4px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;">{{ c.status }}</span></td>
+                    <td style="text-align: right; font-weight: 700; color: #1e293b;">{{ c.comprehensive_rent_amount|floatformat:2|intcomma }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+
+<script>
+    const portfolioMap = {{ portfolio_map_json|safe }};
+    const bldgSelect = document.getElementById('buildingSelect');
+    const unitSelect = document.getElementById('unitSelect');
+    const tenantSelect = document.getElementById('tenantSelect');
+    const submitBtn = document.getElementById('submitBtn');
+    const preselectedTenantId = "{{ selected_tenant_id }}";
+
+    // 1. Populate Buildings on Load
+    Object.keys(portfolioMap).forEach(bldgId => {
+        let opt = document.createElement('option');
+        opt.value = bldgId;
+        opt.textContent = portfolioMap[bldgId].name;
+        bldgSelect.appendChild(opt);
+    });
+
+    // 2. Update Units based on Building Selection
+    function updateUnits() {
+        const bldgId = bldgSelect.value;
+        unitSelect.innerHTML = '<option value="">-- Choose Unit --</option>';
+        tenantSelect.innerHTML = '<option value="">-- Choose Tenant --</option>';
+        unitSelect.disabled = true;
+        tenantSelect.disabled = true;
+        submitBtn.disabled = true;
+
+        if (bldgId && portfolioMap[bldgId]) {
+            const units = portfolioMap[bldgId].units;
+
+            // Sort units alphabetically/numerically
+            const sortedUnitIds = Object.keys(units).sort((a, b) => {
+                return units[a].name.localeCompare(units[b].name, undefined, {numeric: true});
+            });
+
+            sortedUnitIds.forEach(unitId => {
+                let opt = document.createElement('option');
+                opt.value = unitId;
+                opt.textContent = 'Unit ' + units[unitId].name;
+                unitSelect.appendChild(opt);
+            });
+            unitSelect.disabled = false;
+        }
+    }
+
+    // 3. Update Tenants based on Unit Selection
+    function updateTenants() {
+        const bldgId = bldgSelect.value;
+        const unitId = unitSelect.value;
+        tenantSelect.innerHTML = '<option value="">-- Choose Tenant --</option>';
+        tenantSelect.disabled = true;
+        submitBtn.disabled = true;
+
+        if (bldgId && unitId && portfolioMap[bldgId] && portfolioMap[bldgId].units[unitId]) {
+            const tenants = portfolioMap[bldgId].units[unitId].tenants;
+            tenants.forEach(t => {
+                let opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name; // Includes the "(Active)" or "(Past)" label
+                if (t.id.toString() === preselectedTenantId) {
+                    opt.selected = true;
+                }
+                tenantSelect.appendChild(opt);
+            });
+            tenantSelect.disabled = false;
+            checkSubmit();
+        }
+    }
+
+    // 4. Enable button only when tenant is selected
+    function checkSubmit() {
+        submitBtn.disabled = tenantSelect.value === "";
+    }
+
+    tenantSelect.addEventListener('change', checkSubmit);
+
+    // 5. Auto-populate if reloading after submitting a form
+    if (preselectedTenantId) {
+        let found = false;
+        for (let bId in portfolioMap) {
+            for (let uId in portfolioMap[bId].units) {
+                let tenants = portfolioMap[bId].units[uId].tenants;
+                if (tenants.some(t => t.id.toString() === preselectedTenantId)) {
+                    bldgSelect.value = bId;
+                    updateUnits();
+                    unitSelect.value = uId;
+                    updateTenants();
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+    }
+</script>
+{% endblock %}

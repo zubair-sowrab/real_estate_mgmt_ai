@@ -1,0 +1,247 @@
+{% extends 'realestate/base.html' %}
+{% load humanize %}
+
+{% block content %}
+{% if is_modal %}
+<style>
+    #sidebar, .sidebar, aside, header, .header, .navbar, .topbar, .top-header { display: none !important; }
+    #main-wrapper, .page-wrapper, .main-content, body { margin: 0 !important; padding: 0 !important; width: 100% !important; background: #f8fafc !important; }
+</style>
+{% endif %}
+
+<style>
+    .report-container { padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+    .header-bar { margin-bottom: 20px; }
+
+    .filter-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 25px; margin-bottom: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+
+    /* 🚀 NEW: Modern Tab Buttons */
+    .tab-container { display: flex; gap: 15px; margin-bottom: 25px; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; }
+    .tab-btn { background: #f1f5f9; color: #64748b; border: 1px solid #cbd5e1; padding: 12px 25px; font-weight: 700; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; font-size: 1.05rem; flex: 1; text-align: center; }
+    .tab-btn:hover { background: #e2e8f0; color: #1e293b; }
+    .tab-btn.active { background: #2563eb; color: white; border-color: #2563eb; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2); }
+
+    /* Selection Grids */
+    .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; max-height: 250px; overflow-y: auto; padding: 15px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+    .checkbox-label { display: flex; align-items: center; gap: 10px; font-size: 0.95rem; color: #334155; cursor: pointer; font-weight: 600; }
+    .checkbox-label input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #2563eb; }
+
+    /* 🚀 NEW: Accordion for Units */
+    .ybn-accordion { border: 1px solid #cbd5e1; border-radius: 8px; margin-bottom: 10px; background: #ffffff; overflow: hidden; }
+    .ybn-accordion-header { background: #f8fafc; padding: 15px 20px; font-weight: 700; color: #1e293b; cursor: pointer; display: flex; align-items: center; list-style: none; transition: background 0.2s; }
+    .ybn-accordion-header::-webkit-details-marker { display: none; }
+    .ybn-accordion-header:hover { background: #f1f5f9; }
+    .ybn-accordion-body { padding: 15px; border-top: 1px solid #e2e8f0; }
+
+    .filter-input { padding: 10px 15px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.95rem; background-color: #fff; width: 100%; max-width: 250px; }
+    .btn-primary { background-color: #10b981; color: white; border: none; padding: 12px 30px; font-weight: 700; font-size: 1.05rem; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+    .btn-primary:hover { background-color: #059669; }
+
+    /* Comparison Table Matrix */
+    .matrix-wrapper { background: #fff; border: 1px solid #cbd5e1; border-radius: 8px; overflow-x: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.02); margin-bottom: 25px; }
+    .ybn-matrix { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+    .ybn-matrix th { background-color: #1e293b; color: #fff; padding: 15px; text-align: center; border-right: 1px solid #334155; min-width: 180px; }
+    .ybn-matrix th:first-child { text-align: left; background-color: #0f172a; position: sticky; left: 0; z-index: 2; width: 220px; }
+    .ybn-matrix td { padding: 15px; text-align: center; border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; font-weight: 600; color: #1e293b; }
+    .ybn-matrix td:first-child { text-align: left; color: #64748b; font-weight: 600; background: #f8fafc; position: sticky; left: 0; z-index: 1; border-right: 2px solid #cbd5e1; }
+
+    /* AI Insights Box */
+    .ai-box { background: linear-gradient(to right, #f0f9ff, #e0f2fe); border: 1px solid #bae6fd; border-left: 4px solid #0ea5e9; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(14, 165, 233, 0.1); display: none; }
+    .ai-header { display: flex; align-items: center; font-size: 1.1rem; font-weight: 700; color: #0284c7; margin-bottom: 15px; }
+    .ai-content { font-size: 0.95rem; color: #0f172a; line-height: 1.6; }
+    .typing-indicator { color: #0ea5e9; font-weight: bold; animation: blink 1.5s infinite; }
+    @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
+</style>
+
+<div class="report-container">
+
+    <div class="header-bar">
+        <h2 style="margin: 0; color: #1e293b; font-size: 1.5rem;"><i class="fa-solid fa-scale-balanced mr-2" style="color: #4f46e5;"></i> Compare Assets</h2>
+        <p style="margin: 5px 0 0 0; color: #64748b; font-size: 0.95rem;">Select multiple assets to generate a side-by-side performance matrix.</p>
+    </div>
+
+    <!-- Main Configuration Card -->
+    <div class="filter-card">
+        <form method="GET">
+            {% if is_modal %}<input type="hidden" name="is_modal" value="1">{% endif %}
+
+            <!-- Hidden input controls which mode gets submitted -->
+            <input type="hidden" name="compare_type" id="compare_type_input" value="{{ filters.compare_type|default:'buildings' }}">
+
+            <!-- 🚀 THE NEW TABS -->
+            <div class="tab-container">
+                <button type="button" id="tab-buildings" class="tab-btn" onclick="switchTab('buildings')">
+                    <i class="fa-solid fa-city mr-2"></i> Compare Entire Buildings
+                </button>
+                <button type="button" id="tab-units" class="tab-btn" onclick="switchTab('units')">
+                    <i class="fa-solid fa-door-open mr-2"></i> Compare Specific Units
+                </button>
+            </div>
+
+            <!-- MODE 1: Buildings -->
+            <div id="buildings-section" style="display: none;">
+                <div class="checkbox-grid">
+                    {% for p in all_properties %}
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="properties" value="{{ p.id }}" {% if p.id in filters.properties %}checked{% endif %}>
+                        {{ p.name }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- 🚀 MODE 2: Units (Interactive Accordions) -->
+            <div id="units-section" style="display: none;">
+                {% for p in all_properties %}
+                <details class="ybn-accordion">
+                    <summary class="ybn-accordion-header">
+                        <i class="fa-solid fa-building mr-2" style="color: #94a3b8;"></i> {{ p.name }}
+                        <span style="margin-left: auto; font-size: 0.85rem; color: #64748b;">{{ p.units.count }} Units <i class="fa-solid fa-chevron-down ml-2"></i></span>
+                    </summary>
+                    <div class="ybn-accordion-body">
+                        <div class="checkbox-grid" style="max-height: none; border: none; padding: 0;">
+                            {% for u in p.units.all|dictsort:"unit_number" %}
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="units" value="{{ u.id }}" {% if u.id in filters.units %}checked{% endif %}>
+                                Unit {{ u.unit_number }}
+                            </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </details>
+                {% endfor %}
+            </div>
+
+            <!-- Date Ranges & Submit -->
+            <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-top: 25px; border-top: 2px solid #e2e8f0; padding-top: 25px; align-items: flex-end;">
+                <div>
+                    <div style="font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px;">Date From</div>
+                    <input type="date" name="date_from" class="filter-input" value="{{ filters.date_from }}">
+                </div>
+                <div>
+                    <div style="font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px;">Date To</div>
+                    <input type="date" name="date_to" class="filter-input" value="{{ filters.date_to }}">
+                </div>
+                <div style="flex: 1; text-align: right;">
+                    <button type="submit" class="btn-primary"><i class="fa-solid fa-wand-magic-sparkles mr-2"></i> Generate Matrix</button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {% if comparison_data %}
+    <!-- Data Matrix -->
+    <div class="matrix-wrapper">
+        <table class="ybn-matrix">
+            <thead>
+                <tr>
+                    <th>Metrics</th>
+                    {% for p in comparison_data %}
+                        <th>{{ p.name }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Total Units</td>
+                    {% for p in comparison_data %}<td>{{ p.total_units }}</td>{% endfor %}
+                </tr>
+                <tr>
+                    <td>Occupied / Vacant</td>
+                    {% for p in comparison_data %}
+                        <td>
+                            <span style="color: #10b981;">{{ p.occupied }}</span> /
+                            <span style="color: #ef4444;">{{ p.vacant }}</span>
+                        </td>
+                    {% endfor %}
+                </tr>
+                <tr style="background: #f1f5f9;">
+                    <td>Occupancy Rate</td>
+                    {% for p in comparison_data %}
+                        <td style="color: {% if p.occ_rate >= 80 %}#10b981{% elif p.occ_rate >= 50 %}#f59e0b{% else %}#ef4444{% endif %};">{{ p.occ_rate }}%</td>
+                    {% endfor %}
+                </tr>
+                <tr>
+                    <td>Active Tenants</td>
+                    {% for p in comparison_data %}<td>{{ p.num_tenants }}</td>{% endfor %}
+                </tr>
+                <tr>
+                    <td>Total Rent Billed</td>
+                    {% for p in comparison_data %}<td style="color: #2563eb;">AED {{ p.total_rent|floatformat:0|intcomma }}</td>{% endfor %}
+                </tr>
+                <tr>
+                    <td>Maintenance Expenses</td>
+                    {% for p in comparison_data %}<td style="color: #dc2626;">AED {{ p.total_expenses|floatformat:0|intcomma }}</td>{% endfor %}
+                </tr>
+                <tr style="background: #e0f2fe; border-top: 2px solid #bae6fd;">
+                    <td style="color: #0369a1;">Net Yield Target</td>
+                    {% for p in comparison_data %}<td style="color: #0369a1; font-weight: 800;">AED {{ p.net_income|floatformat:0|intcomma }}</td>{% endfor %}
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+
+    {% endif %}
+
+</div>
+
+{% csrf_token %}
+
+<script>
+    // 🚀 FOOLPROOF UI TAB LOGIC
+    function switchTab(mode) {
+        document.getElementById('compare_type_input').value = mode;
+
+        if (mode === 'buildings') {
+            document.getElementById('tab-buildings').classList.add('active');
+            document.getElementById('tab-units').classList.remove('active');
+            document.getElementById('buildings-section').style.display = 'block';
+            document.getElementById('units-section').style.display = 'none';
+        } else {
+            document.getElementById('tab-units').classList.add('active');
+            document.getElementById('tab-buildings').classList.remove('active');
+            document.getElementById('buildings-section').style.display = 'none';
+            document.getElementById('units-section').style.display = 'block';
+        }
+    }
+
+    // Ensure correct tab is open on load based on what they just searched for
+    document.addEventListener('DOMContentLoaded', () => {
+        switchTab(document.getElementById('compare_type_input').value);
+    });
+
+    // --- AI BOT LOGIC ---
+    {% if comparison_data %}
+    document.addEventListener("DOMContentLoaded", function() {
+        const aiBox = document.getElementById('aiInsightsBox');
+        const aiContent = document.getElementById('aiContent');
+        const promptData = {{ ai_prompt_data|safe }};
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+        const landlordId = "{{ landlord.id }}";
+
+        if (Object.keys(promptData).length > 1) {
+            aiBox.style.display = 'block';
+            const aiMessage = "Please analyze this real estate comparison matrix and write a brief, professional 2-paragraph financial conclusion comparing their performance. Highlight the highest earner, highest maintenance costs, and best occupancy rate. Here is the raw JSON data: " + JSON.stringify(promptData);
+
+            fetch("/api/chatbot/", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+                body: JSON.stringify({ message: aiMessage, landlord_id: landlordId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.reply) {
+                    aiContent.innerHTML = data.reply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                } else {
+                    aiContent.innerHTML = "<span style='color: #ef4444;'>AI could not generate a conclusion at this time.</span>";
+                }
+            })
+            .catch(error => {
+                aiContent.innerHTML = "<span style='color: #ef4444;'>Error communicating with AI assistant.</span>";
+            });
+        }
+    });
+    {% endif %}
+</script>
+{% endblock %}

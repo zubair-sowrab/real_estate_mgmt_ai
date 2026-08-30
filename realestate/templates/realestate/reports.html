@@ -7,260 +7,118 @@
 <style>
     .page-title { font-size: 1.6rem; font-weight: 700; margin-bottom: 20px; color: #1e293b; }
 
-    /* Sleek Filter Section */
-    .filter-card { background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 20px; margin-bottom: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-    .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
-    .filter-label { font-size: 0.85rem; font-weight: 700; color: #475569; margin-bottom: 8px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+    /* Report Cards Grid */
+    .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 30px; }
 
-    .checkbox-list { max-height: 160px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; background: #f8fafc; }
-    .checkbox-list label { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.85rem; cursor: pointer; color: #334155; font-weight: 500; }
-    .checkbox-list input[type="checkbox"] { cursor: pointer; accent-color: #2563eb; width: 15px; height: 15px; margin: 0; }
+    .report-card {
+        background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 25px;
+        display: flex; flex-direction: column; align-items: flex-start;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02); transition: all 0.2s ease; cursor: pointer;
+        text-decoration: none; color: inherit;
+    }
+    .report-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); border-color: #94a3b8; }
 
-    .form-control { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; font-size: 0.9rem; }
+    .report-icon-wrapper { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; margin-bottom: 15px; }
+    .report-title { font-size: 1.15rem; font-weight: 700; color: #1e293b; margin-bottom: 8px; }
+    .report-desc { font-size: 0.9rem; color: #64748b; line-height: 1.4; }
 
-    .btn-action { background: #2563eb; color: white; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; transition: 0.2s; }
-    .btn-action:hover { background: #1d4ed8; }
-    .btn-clear { background: #f1f5f9; color: #64748b; padding: 10px 20px; border-radius: 6px; border: 1px solid #cbd5e1; cursor: pointer; font-weight: 600; text-decoration: none; text-align: center; transition: 0.2s; }
-    .btn-clear:hover { background: #e2e8f0; color: #475569; text-decoration: none; }
+    /* Theme Colors for Icons */
+    .icon-rent { background: #dbeafe; color: #2563eb; }
+    .icon-pdc { background: #fef3c7; color: #d97706; }
+    .icon-compare { background: #e0e7ff; color: #4f46e5; }
+    .icon-expense { background: #fee2e2; color: #dc2626; }
+    .icon-tenant { background: #d1fae5; color: #059669; }
 
-    /* KPI Summary Cards */
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .kpi-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; box-shadow: 0 4px 6px rgba(0,0,0,0.02); display: flex; flex-direction: column; justify-content: center; }
-    .kpi-title { font-size: 0.85rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-    .kpi-val { font-size: 1.6rem; font-weight: 800; color: #1e293b; }
-
-    /* Chart Cards */
-    .chart-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid #cbd5e1; box-shadow: 0 4px 6px rgba(0,0,0,0.02); display: flex; flex-direction: column; transition: all 0.3s ease; margin-bottom: 25px; }
-    .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px; }
-    .chart-title { margin: 0; color: #1e293b; font-size: 1.1rem; font-weight: 700; }
-    .chart-wrapper { position: relative; height: 280px; width: 100%; }
+    /* Modal Styles */
+    .ybn-modal-overlay {
+        display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(15, 23, 42, 0.75); z-index: 99999;
+        align-items: center; justify-content: center; backdrop-filter: blur(4px);
+    }
+    .ybn-modal-content {
+        background: #f8fafc; width: 95%; max-width: 1400px; height: 90vh;
+        border-radius: 12px; overflow: hidden; display: flex; flex-direction: column;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    }
+    .ybn-modal-header {
+        padding: 15px 25px; background: #1e293b; color: white;
+        display: flex; justify-content: space-between; align-items: center;
+    }
+    .ybn-modal-close { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; transition: color 0.2s; }
+    .ybn-modal-close:hover { color: #ef4444; }
+    .ybn-modal-body { flex: 1; padding: 0; }
+    .ybn-modal-body iframe { width: 100%; height: 100%; border: none; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div style="padding: 20px;">
-    <h1 class="page-title"><i class="fa-solid fa-chart-line mr-2" style="color: #2563eb;"></i> Ledger Analytics</h1>
+    <h1 class="page-title"><i class="fa-solid fa-chart-line mr-2" style="color: #2563eb;"></i> Analytical Reports Hub</h1>
 
-    <!-- DYNAMIC FILTER SECTION -->
-    <div class="filter-card">
-        <form method="GET">
-            <div class="filter-grid">
-                <!-- Buildings (Multi-Select) -->
-                <div>
-                    <span class="filter-label">Compare Buildings</span>
-                    <div class="checkbox-list">
-                        {% for prop in properties %}
-                        <label>
-                            <input type="checkbox" name="property" value="{{ prop.id }}" class="property-checkbox" {% if prop.id in filters.properties %}checked{% endif %}>
-                            {{ prop.name }}
-                        </label>
-                        {% endfor %}
-                    </div>
-                </div>
-
-                <!-- Units (Dynamic Multi-Select) -->
-                <div>
-                    <span class="filter-label">Filter Specific Units</span>
-                    <div class="checkbox-list" id="unit-checkbox-container">
-                        <!-- Populated by JavaScript -->
-                    </div>
-                </div>
-
-                <!-- Dates & Actions -->
-                <div style="display: flex; flex-direction: column; justify-content: space-between;">
-                    <div>
-                        <div style="margin-bottom: 15px;">
-                            <span class="filter-label">Date From</span>
-                            <input type="date" name="date_from" class="form-control" value="{{ filters.date_from }}">
-                        </div>
-                        <div>
-                            <span class="filter-label">Date To</span>
-                            <input type="date" name="date_to" class="form-control" value="{{ filters.date_to }}">
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button type="submit" class="btn-action" style="flex: 1;"><i class="fa-solid fa-filter mr-1"></i> Apply</button>
-                        <a href="{% url 'owner_reports' landlord.id %}" class="btn-clear" style="flex: 1;"><i class="fa-solid fa-rotate-right mr-1"></i> Reset</a>
-                    </div>
-                </div>
-            </div>
-        </form>
-    </div>
-
-    <!-- 🚀 NEW: KPI SUMMARY CARDS -->
-    <div class="kpi-grid">
-        <div class="kpi-card" style="border-left: 5px solid #cbd5e1;">
-            <div class="kpi-title">Target Rent (Billed)</div>
-            <div class="kpi-val">AED {{ kpis.billed|floatformat:"0"|intcomma }}</div>
+    <div class="report-grid">
+        <!-- 1. Rent Report -->
+        <div class="report-card" onclick="openReportModal('Rent Analytics', '{% url 'report_rent' landlord.id %}')">
+            <div class="report-icon-wrapper icon-rent"><i class="fa-solid fa-chart-area"></i></div>
+            <div class="report-title">Rent Report</div>
+            <div class="report-desc">Track historical rent variations by building, unit, or tenant over specific timeframes.</div>
         </div>
-        <div class="kpi-card" style="border-left: 5px solid #10b981;">
-            <div class="kpi-title">Rent Cleared (Without PDC)</div>
-            <div class="kpi-val" style="color: #10b981;">AED {{ kpis.cleared|floatformat:"0"|intcomma }}</div>
+
+        <!-- 2. PDC Report -->
+        <div class="report-card" onclick="openReportModal('Pending PDC Schedule', '{% url 'report_pdc' landlord.id %}')">
+            <div class="report-icon-wrapper icon-pdc"><i class="fa-solid fa-clock-rotate-left"></i></div>
+            <div class="report-title">Pending PDC Report</div>
+            <div class="report-desc">View and filter upcoming post-dated cheques by date range and property.</div>
         </div>
-        <div class="kpi-card" style="border-left: 5px solid #0ea5e9;">
-            <div class="kpi-title">Pending PDCs Remaining</div>
-            <div class="kpi-val" style="color: #0ea5e9;">AED {{ kpis.pdc|floatformat:"0"|intcomma }}</div>
+
+        <!-- 3. Compare Buildings/Units -->
+        <div class="report-card" onclick="openReportModal('Asset Comparison', '{% url 'report_compare' landlord.id %}')">
+            <div class="report-icon-wrapper icon-compare"><i class="fa-solid fa-scale-balanced"></i></div>
+            <div class="report-title">Compare Assets</div>
+            <div class="report-desc">Side-by-side metric comparison of buildings or units with AI-generated financial conclusions.</div>
         </div>
-        <div class="kpi-card" style="border-left: 5px solid #2563eb;">
-            <div class="kpi-title">Total Secured (With PDC)</div>
-            <div class="kpi-val" style="color: #2563eb;">AED {{ kpis.secured|floatformat:"0"|intcomma }}</div>
+
+        <!-- 4. Expenses Report -->
+        <div class="report-card" onclick="openReportModal('Expense Analysis', '{% url 'report_expenses' landlord.id %}')">
+            <div class="report-icon-wrapper icon-expense"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+            <div class="report-title">Expenses Report</div>
+            <div class="report-desc">Multi-month comparative graphs and detailed general ledger breakdowns.</div>
+        </div>
+
+        <!-- 5. Tenant Report -->
+        <div class="report-card" onclick="openReportModal('Tenant Lifecycle', '{% url 'report_tenant' landlord.id %}')">
+            <div class="report-icon-wrapper icon-tenant"><i class="fa-solid fa-user-check"></i></div>
+            <div class="report-title">Tenant Report</div>
+            <div class="report-desc">Deep dive into individual tenant contract status, cleared ledgers, and maintenance history.</div>
         </div>
     </div>
 
-    <!-- PURE GRAPHS SECTION -->
-    <div class="row">
-        <!-- 1. Rent Growth Chart -->
-        <div class="col-lg-6">
-            <div class="chart-card">
-                <div class="chart-header">
-                    <h4 class="chart-title"><i class="fa-solid fa-arrow-trend-up text-success mr-2"></i> Average Rent Growth (Yearly)</h4>
-                </div>
-                <div class="chart-wrapper"><canvas id="growthChart"></canvas></div>
+    <!-- 🚀 THE MODAL DIALOG -->
+    <div id="reportModal" class="ybn-modal-overlay">
+        <div class="ybn-modal-content">
+            <div class="ybn-modal-header">
+                <h3 id="reportModalTitle" style="margin: 0; font-size: 1.25rem; font-weight: 600;">Report</h3>
+                <button class="ybn-modal-close" onclick="closeReportModal()"><i class="fa-solid fa-xmark"></i></button>
             </div>
-        </div>
-
-        <!-- 2. Revenue Share Doughnut -->
-        <div class="col-lg-6">
-            <div class="chart-card">
-                <div class="chart-header">
-                    <h4 class="chart-title"><i class="fa-solid fa-chart-pie text-warning mr-2"></i> Revenue by Property</h4>
-                </div>
-                <div class="chart-wrapper"><canvas id="propChart"></canvas></div>
-            </div>
-        </div>
-
-        <!-- 3. Target Billed vs Collected Bar Chart -->
-        <div class="col-lg-12">
-            <div class="chart-card">
-                <div class="chart-header">
-                    <h4 class="chart-title"><i class="fa-solid fa-scale-unbalanced text-primary mr-2"></i> Target Rent Billed vs Actual Rent Collected</h4>
-                </div>
-                <div class="chart-wrapper"><canvas id="perfChart"></canvas></div>
-            </div>
-        </div>
-
-        <!-- 4. Revenue Trend Line Chart -->
-        <div class="col-lg-12">
-            <div class="chart-card">
-                <div class="chart-header">
-                    <h4 class="chart-title"><i class="fa-solid fa-money-bill-wave text-success mr-2"></i> Monthly Revenue Collection (True Ledger Credits)</h4>
-                </div>
-                <div class="chart-wrapper"><canvas id="revenueChart"></canvas></div>
+            <div class="ybn-modal-body">
+                <iframe id="modalIframe"></iframe>
             </div>
         </div>
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    // --- DYNAMIC CHECKBOX LOGIC ---
-    const propUnitMap = {{ prop_unit_map|safe }};
-    const selectedUnits = {{ filters.units_json|safe }};
+    function openReportModal(title, url) {
+        // Append the is_modal flag so the target view knows to hide its own sidebars
+        const targetUrl = url.includes('?') ? `${url}&is_modal=1` : `${url}?is_modal=1`;
 
-    function updateUnitCheckboxes() {
-        const checkedProps = Array.from(document.querySelectorAll('.property-checkbox:checked')).map(cb => cb.value);
-        const unitContainer = document.getElementById('unit-checkbox-container');
-        unitContainer.innerHTML = '';
-
-        let availableUnits = [];
-        if (checkedProps.length === 0) {
-            Object.values(propUnitMap).forEach(prop => { availableUnits = availableUnits.concat(prop.units); });
-        } else {
-            checkedProps.forEach(pid => {
-                if (propUnitMap[pid]) availableUnits = availableUnits.concat(propUnitMap[pid].units);
-            });
-        }
-
-        availableUnits = [...new Set(availableUnits)].sort();
-
-        if (availableUnits.length === 0) {
-            unitContainer.innerHTML = '<div style="color: #94a3b8; font-size: 0.8rem; padding: 10px;">No units found.</div>';
-            return;
-        }
-
-        availableUnits.forEach(unit => {
-            const isChecked = selectedUnits.includes(unit) ? 'checked' : '';
-            unitContainer.innerHTML += `<label><input type="checkbox" name="unit" value="${unit}" ${isChecked}> ${unit}</label>`;
-        });
+        document.getElementById('reportModalTitle').innerText = title;
+        document.getElementById('modalIframe').src = targetUrl;
+        document.getElementById('reportModal').style.display = 'flex';
     }
 
-    document.querySelectorAll('.property-checkbox').forEach(cb => { cb.addEventListener('change', updateUnitCheckboxes); });
-    updateUnitCheckboxes();
-
-
-    // --- CHART.JS VISUALIZATIONS ---
-    const formatCurrency = (value) => 'AED ' + value.toLocaleString(undefined, {minimumFractionDigits: 0});
-
-    // 1. Rent Growth Chart (Yearly)
-    new Chart(document.getElementById('growthChart'), {
-        type: 'bar',
-        data: {
-            labels: {{ analytics.growth_years|safe }},
-            datasets: [{
-                label: 'Average Rent Value',
-                data: {{ analytics.growth_rents|safe }},
-                backgroundColor: '#10b981',
-                borderRadius: 4
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { tooltip: { callbacks: { label: function(ctx) { return formatCurrency(ctx.raw); } } } }
-        }
-    });
-
-    // 2. Revenue Share Doughnut Chart
-    const propertyColors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#64748b'];
-    new Chart(document.getElementById('propChart'), {
-        type: 'doughnut',
-        data: {
-            labels: {{ analytics.props|safe }},
-            datasets: [{
-                data: {{ analytics.prop_cleared|safe }},
-                backgroundColor: propertyColors,
-                borderWidth: 0, hoverOffset: 5
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: {
-                legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } },
-                tooltip: { callbacks: { label: function(ctx) { return ' ' + formatCurrency(ctx.raw); } } }
-            }
-        }
-    });
-
-    // 3. Billed vs Collected Grouped Bar Chart
-    new Chart(document.getElementById('perfChart'), {
-        type: 'bar',
-        data: {
-            labels: {{ analytics.perf_props|safe }},
-            datasets: [
-                { label: 'Target Rent (Billed)', data: {{ analytics.perf_billed|safe }}, backgroundColor: '#cbd5e1', borderRadius: 4 },
-                { label: 'Actual Collected', data: {{ analytics.perf_collected|safe }}, backgroundColor: '#2563eb', borderRadius: 4 }
-            ]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + formatCurrency(ctx.raw); } } } }
-        }
-    });
-
-    // 4. Revenue Trend Line Chart
-    new Chart(document.getElementById('revenueChart'), {
-        type: 'line',
-        data: {
-            labels: {{ analytics.months|safe }},
-            datasets: [{
-                label: 'Collected Revenue', data: {{ analytics.collections|safe }},
-                borderColor: '#f59e0b', backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                borderWidth: 3, fill: true, tension: 0.4, pointRadius: 4
-            }]
-        },
-        options: {
-            responsive: true, maintainAspectRatio: false,
-            plugins: { tooltip: { callbacks: { label: function(ctx) { return formatCurrency(ctx.raw); } } } }
-        }
-    });
+    function closeReportModal() {
+        document.getElementById('reportModal').style.display = 'none';
+        document.getElementById('modalIframe').src = ''; // Kill background processing
+    }
 </script>
 {% endblock %}

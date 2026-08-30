@@ -3,6 +3,9 @@ from django.db.models import Sum, Q, Prefetch
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.db.models.functions import TruncMonth, TruncYear
+import json
+from django.http import HttpResponse
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.clickjacking import xframe_options_sameorigin
 import re
 from django.utils import timezone
@@ -1753,3 +1756,530 @@ def tenant_health(request, landlord_id):
         'notif_count': len(get_dynamic_notifications(landlord))
     })
 
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+
+import traceback
+
+class ChatbotAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user_message = request.data.get("message")
+        requested_landlord_id = request.data.get("landlord_id")
+        chat_history = request.data.get("history", [])
+
+        if not user_message:
+            return Response({"error": "Message is required"}, status=400)
+
+        if not requested_landlord_id:
+            return Response({"error": "Landlord context is missing."}, status=400)
+
+        # 1. THE SECURITY SHIELD
+        if not request.user.is_superuser:
+            try:
+                if str(request.user.landlord_profile.id) != str(requested_landlord_id):
+                    return Response({"error": "Security Violation: Unauthorized."}, status=403)
+            except AttributeError:
+                return Response({"error": "Security Violation: User is not linked to a landlord profile."}, status=403)
+
+        # 2. BUILD CONVERSATION THREAD
+        formatted_messages = []
+        for msg in chat_history:
+            role = msg.get("role")
+            content = msg.get("content")
+            if role in ['user', 'assistant'] and content:
+                formatted_messages.append((role, content))
+
+        current_date = timezone.now().strftime("%Y-%m-%d")
+        current_year = timezone.now().year
+
+        secure_prompt = (
+            f"System Note: The authenticated user's landlord_id is {requested_landlord_id}. "
+            f"The current system date is {current_date}. If the user mentions 'today', 'yesterday', "
+            f"or a month/day without a year, ALWAYS assume they mean the current year ({current_year}). "
+            f"You MUST use this landlord_id for all tool calls.\n\n"
+            f"User Message: {user_message}"
+        )
+
+        formatted_messages.append(("user", secure_prompt))
+
+        # 4. EXECUTE AGENT
+        try:
+            response_data = chatbot_agent.invoke({
+                "messages": formatted_messages
+            })
+
+            final_reply = response_data["messages"][-1].content
+            return Response({"reply": final_reply})
+
+
+        except Exception as e:
+
+            # Print the full stack trace to the terminal just in case
+
+            import traceback
+
+            print("\n" + "=" * 50)
+
+            print("🛑 BACKEND AGENT EXCEPTION TRACEBACK:")
+
+            traceback.print_exc()
+
+            print("=" * 50 + "\n")
+
+            # 🚀 RIP OUT THE SHIELD: Return the raw, exact error directly to the chat window!
+
+            raw_error = str(e)
+
+            return Response({"reply": f"**🚨 RAW SYSTEM CRASH:**\n```\n{raw_error}\n```"})
+
+
+# ==========================================
+# 🚀 MODULAR REPORTS HUB
+# ==========================================
+
+@login_required(login_url='/login/')
+@xframe_options_sameorigin
+def report_rent(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    is_modal = request.GET.get('is_modal') == '1'
+
+    # Grab Filters
+    prop_id = request.GET.get('property', '')
+    unit_id = request.GET.get('unit', '')
+    tenant_id = request.GET.get('tenant', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+
+    # Base Query
+    contracts = Contract.objects.filter(unit__property_asset__owner=landlord, start_date__isnull=False).select_related(
+        'unit__property_asset', 'tenant').order_by('start_date')
+
+    if prop_id: contracts = contracts.filter(unit__property_asset_id=prop_id)
+    if unit_id: contracts = contracts.filter(unit_id=unit_id)
+    if tenant_id: contracts = contracts.filter(tenant_id=tenant_id)
+    if date_from: contracts = contracts.filter(start_date__gte=date_from)
+    if date_to: contracts = contracts.filter(start_date__lte=date_to)
+
+    # Process Data for Chart.js
+    chart_labels = []
+    chart_data = []
+
+    for c in contracts:
+        label = f"{c.start_date.strftime('%b %Y')} ({c.unit.unit_number})"
+        chart_labels.append(label)
+        chart_data.append(float(c.comprehensive_rent_amount))
+
+    # Dropdown Options
+    properties = Property.objects.filter(owner=landlord).order_by('name')
+    units = Unit.objects.filter(property_asset__owner=landlord).order_by('unit_number')
+    tenants = Tenant.objects.filter(contracts__unit__property_asset__owner=landlord).distinct().order_by('full_name')
+
+    context = {
+        'landlord': landlord,
+        'is_modal': is_modal,
+        'contracts': contracts,
+        'chart_labels': json.dumps(chart_labels),
+        'chart_data': json.dumps(chart_data),
+        'properties': properties,
+        'units': units,
+        'tenants': tenants,
+        'filters': {'property': prop_id, 'unit': unit_id, 'tenant': tenant_id, 'date_from': date_from,
+                    'date_to': date_to}
+    }
+    return render(request, 'realestate/report_rent.html', context)
+
+
+@login_required(login_url='/login/')
+@xframe_options_sameorigin
+def report_pdc(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    is_modal = request.GET.get('is_modal') == '1'
+
+    # Grab Filters
+    prop_id = request.GET.get('property', '')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+
+    # 🚀 Base Query: Locked exclusively to Pending PDCs for maximum speed
+    pdcs = Collection.objects.filter(
+        contract__unit__property_asset__owner=landlord,
+        status='Pending PDC'
+    ).select_related('contract__tenant', 'contract__unit', 'contract__unit__property_asset').order_by('due_date')
+
+    if prop_id: pdcs = pdcs.filter(contract__unit__property_asset_id=prop_id)
+    if date_from: pdcs = pdcs.filter(due_date__gte=date_from)
+    if date_to: pdcs = pdcs.filter(due_date__lte=date_to)
+
+    # Calculate Totals
+    total_pdc_amount = sum(c.amount for c in pdcs)
+
+    # Dropdowns
+    properties = Property.objects.filter(owner=landlord).order_by('name')
+
+    context = {
+        'landlord': landlord,
+        'is_modal': is_modal,
+        'pdcs': pdcs,
+        'total_pdc_amount': total_pdc_amount,
+        'properties': properties,
+        'filters': {'property': prop_id, 'date_from': date_from, 'date_to': date_to}
+    }
+    return render(request, 'realestate/report_pdc.html', context)
+
+
+@login_required(login_url='/login/')
+@xframe_options_sameorigin
+def report_compare(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    is_modal = request.GET.get('is_modal') == '1'
+    compare_type = request.GET.get('compare_type', 'buildings')
+    selected_prop_ids = request.GET.getlist('properties')
+    selected_unit_ids = request.GET.getlist('units')
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+
+    # Prefetch units so the template can render them quickly
+    all_properties = Property.objects.filter(owner=landlord).prefetch_related('units').order_by('name')
+
+    comparison_data = []
+    ai_prompt_data = {}
+
+    # ==========================================
+    # 🚀 MODE 1: COMPARE BUILDINGS
+    # ==========================================
+    if compare_type == 'buildings' and selected_prop_ids:
+        selected_props = all_properties.filter(id__in=selected_prop_ids)
+        for p in selected_props:
+            exp_units, t_count, _, _ = get_property_expanded_stats(p)
+
+            total_rent = 0.0
+            active_tenants = set()
+            dynamic_occupied = 0
+
+            for eu in exp_units:
+                c = eu.get('latest_contract')
+                if c:
+                    include_contract = True
+                    if date_from and c.end_date and c.end_date < datetime.strptime(date_from, "%Y-%m-%d").date():
+                        include_contract = False
+                    if date_to and c.start_date and c.start_date > datetime.strptime(date_to, "%Y-%m-%d").date():
+                        include_contract = False
+
+                    if include_contract and c.status in ['Active', 'Expired (Holdover)']:
+                        active_tenants.add(c.tenant.id)
+                        total_rent += float(c.comprehensive_rent_amount)
+                        dynamic_occupied += 1
+
+            exp_qs = OwnerExpense.objects.filter(landlord=landlord, tower_name=p.name)
+            if date_from: exp_qs = exp_qs.filter(date__gte=date_from)
+            if date_to: exp_qs = exp_qs.filter(date__lte=date_to)
+            total_expenses = float(exp_qs.aggregate(Sum('amount'))['amount__sum'] or 0)
+
+            comparison_data.append({
+                'name': p.name,
+                'total_units': t_count,
+                'occupied': dynamic_occupied,
+                'vacant': t_count - dynamic_occupied,
+                'occ_rate': int((dynamic_occupied / t_count) * 100) if t_count > 0 else 0,
+                'num_tenants': len(active_tenants),
+                'total_rent': total_rent,
+                'total_expenses': total_expenses,
+                'net_income': total_rent - total_expenses
+            })
+
+    # ==========================================
+    # 🚀 MODE 2: COMPARE UNITS (Cross-Building)
+    # ==========================================
+    elif compare_type == 'units' and selected_unit_ids:
+        # 1. Convert string IDs to integers
+        unit_ids_int = [int(i) for i in selected_unit_ids if i.isdigit()]
+
+        # 2. Find every property that owns one of the checked units
+        properties_with_units = all_properties.filter(units__id__in=unit_ids_int).distinct()
+
+        for p in properties_with_units:
+            exp_units, _, _, _ = get_property_expanded_stats(p)
+            for eu in exp_units:
+                # 3. Only process the specific units the user selected
+                if eu['original_unit'].id in unit_ids_int:
+                    c = eu.get('latest_contract')
+                    total_rent, dynamic_occupied = 0.0, 0
+
+                    if c:
+                        include_contract = True
+                        if date_from and c.end_date and c.end_date < datetime.strptime(date_from, "%Y-%m-%d").date():
+                            include_contract = False
+                        if date_to and c.start_date and c.start_date > datetime.strptime(date_to, "%Y-%m-%d").date():
+                            include_contract = False
+
+                        if include_contract and c.status in ['Active', 'Expired (Holdover)']:
+                            dynamic_occupied = 1
+                            total_rent = float(c.comprehensive_rent_amount)
+
+                    exp_qs = OwnerExpense.objects.filter(landlord=landlord, tower_name=p.name,
+                                                         unit_name=eu['unit_number'])
+                    if date_from: exp_qs = exp_qs.filter(date__gte=date_from)
+                    if date_to: exp_qs = exp_qs.filter(date__lte=date_to)
+                    total_expenses = float(exp_qs.aggregate(Sum('amount'))['amount__sum'] or 0)
+
+                    comparison_data.append({
+                        'name': f"Unit {eu['unit_number']} ({p.name})",
+                        'total_units': 1,
+                        'occupied': dynamic_occupied,
+                        'vacant': 1 - dynamic_occupied,
+                        'occ_rate': 100 if dynamic_occupied else 0,
+                        'num_tenants': dynamic_occupied,
+                        'total_rent': total_rent,
+                        'total_expenses': total_expenses,
+                        'net_income': total_rent - total_expenses
+                    })
+
+    for d in comparison_data: ai_prompt_data[d['name']] = d
+
+    context = {
+        'landlord': landlord,
+        'is_modal': is_modal,
+        'all_properties': all_properties,
+        'filters': {
+            'compare_type': compare_type,
+            'properties': [int(i) for i in selected_prop_ids if i.isdigit()],
+            'units': [int(i) for i in selected_unit_ids if i.isdigit()],
+            'date_from': date_from,
+            'date_to': date_to
+        },
+        'comparison_data': comparison_data,
+        'ai_prompt_data': json.dumps(ai_prompt_data)
+    }
+    return render(request, 'realestate/report_compare.html', context)
+
+@login_required(login_url='/login/')
+@xframe_options_sameorigin
+def report_expenses(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    is_modal = request.GET.get('is_modal') == '1'
+
+    # Default to current month and the two preceding months
+    today = timezone.now().date()
+
+    # Calculate default months safely
+    m1_default = today.replace(day=1)
+    m2_default = (m1_default - timedelta(days=1)).replace(day=1)
+    m3_default = (m2_default - timedelta(days=1)).replace(day=1)
+
+    m1_str = request.GET.get('month1', m1_default.strftime('%Y-%m'))
+    m2_str = request.GET.get('month2', m2_default.strftime('%Y-%m'))
+    m3_str = request.GET.get('month3', m3_default.strftime('%Y-%m'))
+
+    # Order from oldest to newest for logical progression
+    selected_months = [m3_str, m2_str, m1_str]
+
+    report_data = []
+
+    for m_str in selected_months:
+        try:
+            y, mo = m_str.split('-')
+            exps = OwnerExpense.objects.filter(
+                landlord=landlord,
+                date__year=y,
+                date__month=mo
+            )
+
+            # Group by building
+            tower_totals = {}
+            total = 0.0
+            for e in exps:
+                t_name = e.tower_name or "General Expenses"
+                amt = float(e.amount)
+                tower_totals[t_name] = tower_totals.get(t_name, 0.0) + amt
+                total += amt
+
+            labels = list(tower_totals.keys())
+            data = list(tower_totals.values())
+
+            # Sort for table display (highest expense first)
+            sorted_raw = sorted([{'tower': k, 'amount': v} for k, v in tower_totals.items()], key=lambda x: x['amount'],
+                                reverse=True)
+
+            month_name = datetime(int(y), int(mo), 1).strftime('%B %Y')
+
+            report_data.append({
+                'month_val': m_str,
+                'month_name': month_name,
+                'labels': labels,
+                'data': data,
+                'total': total,
+                'raw_data': sorted_raw
+            })
+        except ValueError:
+            continue  # Skip invalid date formats
+
+    context = {
+        'landlord': landlord,
+        'is_modal': is_modal,
+        'report_data': report_data,
+        'report_data_json': json.dumps([{
+            'labels': r['labels'],
+            'data': r['data']
+        } for r in report_data])
+    }
+    return render(request, 'realestate/report_expenses.html', context)
+
+
+@login_required(login_url='/login/')
+@xframe_options_sameorigin
+def report_tenant(request, landlord_id):
+    landlord = get_object_or_404(Landlord, id=landlord_id)
+    if not request.user.is_superuser:
+        if not hasattr(request.user, 'landlord_profile') or request.user.landlord_profile.id != landlord.id:
+            return HttpResponseForbidden("<h1>403</h1>")
+
+    is_modal = request.GET.get('is_modal') == '1'
+    tenant_id = request.GET.get('tenant', '')
+
+    # 🚀 1. Build the Cascading Dropdown Map (Building -> Unit -> Tenant)
+    properties = Property.objects.filter(owner=landlord).prefetch_related('units__contracts__tenant')
+    portfolio_map = {}
+
+    for p in properties:
+        bldg_data = {'name': p.name, 'units': {}}
+        for u in p.units.all():
+            contracts = u.contracts.filter(tenant__isnull=False).select_related('tenant').order_by('-start_date')
+            if contracts.exists():
+                unit_tenants = []
+                seen = set()
+                for c in contracts:
+                    if c.tenant.id not in seen:
+                        # Append a clean status label so you know if they are current or past
+                        status_label = "Active" if c.status in ['Active', 'Expired (Holdover)'] else "Past"
+                        unit_tenants.append({
+                            'id': c.tenant.id,
+                            'name': f"{c.tenant.full_name} ({status_label})"
+                        })
+                        seen.add(c.tenant.id)
+                bldg_data['units'][u.id] = {
+                    'name': u.unit_number,
+                    'tenants': unit_tenants
+                }
+        if bldg_data['units']:
+            portfolio_map[p.id] = bldg_data
+
+    # 🚀 2. Process specific tenant if submitted
+    tenant_data = None
+
+    if tenant_id:
+        tenant = get_object_or_404(Tenant, id=tenant_id)
+        all_contracts = Contract.objects.filter(tenant=tenant, unit__property_asset__owner=landlord).order_by(
+            '-start_date')
+
+        if all_contracts.exists():
+            latest_c = all_contracts.first()
+            old_contracts = all_contracts[1:]
+
+            today = timezone.now().date()
+            days_left, days_expired, time_pct = 0, 0, 0
+
+            if latest_c.start_date and latest_c.end_date:
+                total_days = (latest_c.end_date - latest_c.start_date).days or 1
+                passed_days = (today - latest_c.start_date).days
+                time_pct = min(100, max(0, int((passed_days / total_days) * 100)))
+                days_left = (latest_c.end_date - today).days
+                if days_left < 0:
+                    days_expired = abs(days_left)
+                    days_left = 0
+
+            exp_agg = OwnerExpense.objects.filter(
+                landlord=landlord,
+                unit_name=latest_c.unit.unit_number,
+                tower_name=latest_c.unit.property_asset.name,
+                date__gte=latest_c.start_date if latest_c.start_date else datetime(2000, 1, 1).date()
+            ).aggregate(total=Sum('amount'))
+            expenses = float(exp_agg['total'] or 0)
+
+            ui_tracking_no = latest_c.pact_costcenter_id
+            if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None']:
+                raw_entries = list(ContractLedger.objects.filter(contract__pact_costcenter_id=ui_tracking_no,
+                                                                 contract__tenant=tenant).order_by('doc_date'))
+            else:
+                raw_entries = list(latest_c.true_ledger_entries.all().order_by('doc_date'))
+
+            ledger = []
+            running_bal, true_debits, true_credits = 0.0, 0.0, 0.0
+
+            for entry in raw_entries:
+                amt = float(entry.amount)
+                if entry.is_debit:
+                    running_bal += amt
+                    true_debits += amt
+                else:
+                    running_bal -= amt
+                    true_credits += amt
+
+                ledger.append({
+                    'date': entry.doc_date,
+                    'doc_no': entry.doc_no,
+                    'particular': entry.particular,
+                    'debit': amt if entry.is_debit else 0,
+                    'credit': amt if not entry.is_debit else 0,
+                    'balance': running_bal,
+                    'chq_no': entry.chq_no
+                })
+
+            pdcs = latest_c.collections.filter(status='Pending PDC')
+            for p in pdcs:
+                ledger.append({
+                    'date': p.due_date,
+                    'doc_no': 'PDR (Pending)',
+                    'particular': 'PDC Receivable',
+                    'debit': 0,
+                    'credit': float(p.amount),
+                    'balance': 'N/A',
+                    'chq_no': p.cheque_number
+                })
+
+            ledger.sort(key=lambda x: x['date'] if x['date'] else datetime.min.date())
+
+            cleared_rent = true_credits
+            total_rent = true_debits if true_debits > 0 else float(latest_c.comprehensive_rent_amount)
+
+            tenant_data = {
+                'tenant': tenant,
+                'latest_contract': latest_c,
+                'old_contracts': old_contracts,
+                'time_pct': time_pct,
+                'days_left': days_left,
+                'days_expired': days_expired,
+                'expenses': expenses,
+                'ledger': ledger,
+                'cleared_rent': cleared_rent,
+                'total_rent': total_rent,
+                'pdc_total': sum(float(p.amount) for p in pdcs)
+            }
+
+    context = {
+        'landlord': landlord,
+        'is_modal': is_modal,
+        'portfolio_map_json': json.dumps(portfolio_map),
+        'selected_tenant_id': int(tenant_id) if tenant_id and tenant_id.isdigit() else '',
+        'tenant_data': tenant_data
+    }
+    return render(request, 'realestate/report_tenant.html', context)

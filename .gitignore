@@ -7,7 +7,7 @@ xray.py
 *.env
 
 secrets.json
-
+db.sqlite3
 # --- Python Virtual Environments & Packages ---
 venv/
 .venv/
