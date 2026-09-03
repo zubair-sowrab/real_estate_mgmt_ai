@@ -1761,6 +1761,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
+
+
 import traceback
 
 
@@ -1897,6 +1899,12 @@ def report_compare(request, landlord_id):
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
 
+    # 🛡️ THE COMPANY SHIELD (Needed for accurate Ledger Deduplication)
+    pact_ll_id = str(landlord.pact_landlord_id).strip()
+    prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+    allowed_prefixes = prefix_map.get(pact_ll_id, [])
+    if '02' not in allowed_prefixes: allowed_prefixes.append('02')
+
     # Prefetch units so the template can render them quickly
     all_properties = Property.objects.filter(owner=landlord).prefetch_related('units').order_by('name')
 
@@ -1909,13 +1917,70 @@ def report_compare(request, landlord_id):
     if compare_type == 'buildings' and selected_prop_ids:
         selected_props = all_properties.filter(id__in=selected_prop_ids)
         for p in selected_props:
-            exp_units, t_count, _, _ = get_property_expanded_stats(p)
+            exp_units, _, _, _ = get_property_expanded_stats(p)
 
-            total_rent = 0.0
-            active_tenants = set()
-            dynamic_occupied = 0
+            # 1. THE SHATTERED LEASE UI DEDUPLICATOR
+            sno_groups = {}
+            ghost_unit_ids = set()
 
             for eu in exp_units:
+                c = eu.get('latest_contract')
+                if c and c.status in ['Active', 'Expired (Holdover)']:
+                    sno = c.pact_costcenter_id
+                    if sno and sno not in ['0', '1', 'None', '']:
+                        if sno not in sno_groups:
+                            sno_groups[sno] = []
+                        sno_groups[sno].append(eu)
+
+            for sno, eu_list in sno_groups.items():
+                if len(eu_list) > 1:
+                    master_eu = max(eu_list, key=lambda x: len(x['original_unit'].unit_number))
+                    for eu in eu_list:
+                        if eu != master_eu:
+                            ghost_unit_ids.add(eu['unit_number'])
+
+            exp_units = [eu for eu in exp_units if eu['unit_number'] not in ghost_unit_ids]
+
+            # 2. THE PHYSICAL SPACE DEDUPLICATOR
+            occupied_base_units = set()
+
+            for eu in exp_units:
+                c = eu.get('latest_contract')
+                if c and c.status in ['Active', 'Expired (Holdover)']:
+                    sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+                    for su in sub_units:
+                        occupied_base_units.add(su)
+
+            all_standalone_units = set()
+            for eu in exp_units:
+                if ',' not in eu['unit_number']:
+                    all_standalone_units.add(eu['unit_number'].strip())
+
+            physical_ghost_ids = set()
+            for eu in exp_units:
+                c = eu.get('latest_contract')
+                is_occupied = c and c.status in ['Active', 'Expired (Holdover)']
+                sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+
+                if not is_occupied:
+                    if any(su in occupied_base_units for su in sub_units):
+                        physical_ghost_ids.add(eu['unit_number'])
+                    elif len(sub_units) > 1 and all(su in all_standalone_units for su in sub_units):
+                        physical_ghost_ids.add(eu['unit_number'])
+
+            exp_units = [eu for eu in exp_units if eu['unit_number'] not in physical_ghost_ids]
+
+            # 3. PHYSICAL COUNTER & UNIQUE CONTRACTS
+            active_tenants = set()
+            dynamic_occupied = 0
+            t_count = 0
+            unique_contracts = set()
+
+            for eu in exp_units:
+                sub_units = [u.strip() for u in eu['unit_number'].split(',')]
+                physical_qty = len(sub_units)
+                t_count += physical_qty
+
                 c = eu.get('latest_contract')
                 if c:
                     include_contract = True
@@ -1926,8 +1991,49 @@ def report_compare(request, landlord_id):
 
                     if include_contract and c.status in ['Active', 'Expired (Holdover)']:
                         active_tenants.add(c.tenant.id)
-                        total_rent += float(c.comprehensive_rent_amount)
-                        dynamic_occupied += 1
+                        dynamic_occupied += physical_qty
+                        unique_contracts.add(c)
+
+            # 4. FINANCIAL LEDGER MERGE
+            total_rent = 0.0
+            for c in unique_contracts:
+                ui_tracking_no = c.pact_costcenter_id
+                adjusted_rent = float(c.comprehensive_rent_amount)
+
+                if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None', '']:
+                    raw_entries = list(ContractLedger.objects.filter(
+                        contract__pact_costcenter_id=ui_tracking_no,
+                        contract__tenant=c.tenant
+                    ))
+                else:
+                    raw_entries = list(c.true_ledger_entries.all())
+
+                rogue_entries = set()
+                brv_tracker = {}
+                for entry in raw_entries:
+                    if entry.doc_abbr in ['BRV', 'CRV', 'CRO']:
+                        key = f"{entry.doc_no}_{str(entry.chq_no).strip()}"
+                        if key not in brv_tracker:
+                            brv_tracker[key] = []
+                        brv_tracker[key].append(entry)
+                for key, entries in brv_tracker.items():
+                    if len(entries) > 1:
+                        entries.sort(key=lambda x: float(x.amount), reverse=True)
+                        for rogue in entries[1:]:
+                            rogue_entries.add(rogue.id)
+
+                true_total_dr = 0.0
+                for entry in raw_entries:
+                    if entry.id in rogue_entries: continue
+                    if allowed_prefixes and entry.doc_no and '-' in entry.doc_no and '/' in entry.doc_no:
+                        comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
+                        if comp_code.isdigit() and len(comp_code) == 2 and comp_code not in allowed_prefixes:
+                            continue
+
+                    if entry.is_debit:
+                        true_total_dr += float(entry.amount)
+
+                total_rent += true_total_dr if true_total_dr > 0 else adjusted_rent
 
             exp_qs = OwnerExpense.objects.filter(landlord=landlord, tower_name=p.name)
             if date_from: exp_qs = exp_qs.filter(date__gte=date_from)
@@ -1950,16 +2056,12 @@ def report_compare(request, landlord_id):
     # 🚀 MODE 2: COMPARE UNITS (Cross-Building)
     # ==========================================
     elif compare_type == 'units' and selected_unit_ids:
-        # 1. Convert string IDs to integers
         unit_ids_int = [int(i) for i in selected_unit_ids if i.isdigit()]
-
-        # 2. Find every property that owns one of the checked units
         properties_with_units = all_properties.filter(units__id__in=unit_ids_int).distinct()
 
         for p in properties_with_units:
             exp_units, _, _, _ = get_property_expanded_stats(p)
             for eu in exp_units:
-                # 3. Only process the specific units the user selected
                 if eu['original_unit'].id in unit_ids_int:
                     c = eu.get('latest_contract')
                     total_rent, dynamic_occupied = 0.0, 0
@@ -1973,7 +2075,45 @@ def report_compare(request, landlord_id):
 
                         if include_contract and c.status in ['Active', 'Expired (Holdover)']:
                             dynamic_occupied = 1
-                            total_rent = float(c.comprehensive_rent_amount)
+
+                            # Accurate Ledger Check for single unit
+                            ui_tracking_no = c.pact_costcenter_id
+                            adjusted_rent = float(c.comprehensive_rent_amount)
+
+                            if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None', '']:
+                                raw_entries = list(ContractLedger.objects.filter(
+                                    contract__pact_costcenter_id=ui_tracking_no,
+                                    contract__tenant=c.tenant
+                                ))
+                            else:
+                                raw_entries = list(c.true_ledger_entries.all())
+
+                            rogue_entries = set()
+                            brv_tracker = {}
+                            for entry in raw_entries:
+                                if entry.doc_abbr in ['BRV', 'CRV', 'CRO']:
+                                    key = f"{entry.doc_no}_{str(entry.chq_no).strip()}"
+                                    if key not in brv_tracker:
+                                        brv_tracker[key] = []
+                                    brv_tracker[key].append(entry)
+                            for key, entries in brv_tracker.items():
+                                if len(entries) > 1:
+                                    entries.sort(key=lambda x: float(x.amount), reverse=True)
+                                    for rogue in entries[1:]:
+                                        rogue_entries.add(rogue.id)
+
+                            true_total_dr = 0.0
+                            for entry in raw_entries:
+                                if entry.id in rogue_entries: continue
+                                if allowed_prefixes and entry.doc_no and '-' in entry.doc_no and '/' in entry.doc_no:
+                                    comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
+                                    if comp_code.isdigit() and len(
+                                            comp_code) == 2 and comp_code not in allowed_prefixes:
+                                        continue
+                                if entry.is_debit:
+                                    true_total_dr += float(entry.amount)
+
+                            total_rent = true_total_dr if true_total_dr > 0 else adjusted_rent
 
                     exp_qs = OwnerExpense.objects.filter(landlord=landlord, tower_name=p.name,
                                                          unit_name=eu['unit_number'])
@@ -2010,6 +2150,9 @@ def report_compare(request, landlord_id):
         'ai_prompt_data': json.dumps(ai_prompt_data)
     }
     return render(request, 'realestate/report_compare.html', context)
+
+
+
 
 @login_required(login_url='/login/')
 @xframe_options_sameorigin
