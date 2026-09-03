@@ -1763,84 +1763,10 @@ from rest_framework.permissions import IsAuthenticated
 
 import traceback
 
-class ChatbotAPIView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user_message = request.data.get("message")
-        requested_landlord_id = request.data.get("landlord_id")
-        chat_history = request.data.get("history", [])
-
-        if not user_message:
-            return Response({"error": "Message is required"}, status=400)
-
-        if not requested_landlord_id:
-            return Response({"error": "Landlord context is missing."}, status=400)
-
-        # 1. THE SECURITY SHIELD
-        if not request.user.is_superuser:
-            try:
-                if str(request.user.landlord_profile.id) != str(requested_landlord_id):
-                    return Response({"error": "Security Violation: Unauthorized."}, status=403)
-            except AttributeError:
-                return Response({"error": "Security Violation: User is not linked to a landlord profile."}, status=403)
-
-        # 2. BUILD CONVERSATION THREAD
-        formatted_messages = []
-        for msg in chat_history:
-            role = msg.get("role")
-            content = msg.get("content")
-            if role in ['user', 'assistant'] and content:
-                formatted_messages.append((role, content))
-
-        current_date = timezone.now().strftime("%Y-%m-%d")
-        current_year = timezone.now().year
-
-        secure_prompt = (
-            f"System Note: The authenticated user's landlord_id is {requested_landlord_id}. "
-            f"The current system date is {current_date}. If the user mentions 'today', 'yesterday', "
-            f"or a month/day without a year, ALWAYS assume they mean the current year ({current_year}). "
-            f"You MUST use this landlord_id for all tool calls.\n\n"
-            f"User Message: {user_message}"
-        )
-
-        formatted_messages.append(("user", secure_prompt))
-
-        # 4. EXECUTE AGENT
-        try:
-            response_data = chatbot_agent.invoke({
-                "messages": formatted_messages
-            })
-
-            final_reply = response_data["messages"][-1].content
-            return Response({"reply": final_reply})
-
-
-        except Exception as e:
-
-            # Print the full stack trace to the terminal just in case
-
-            import traceback
-
-            print("\n" + "=" * 50)
-
-            print("🛑 BACKEND AGENT EXCEPTION TRACEBACK:")
-
-            traceback.print_exc()
-
-            print("=" * 50 + "\n")
-
-            # 🚀 RIP OUT THE SHIELD: Return the raw, exact error directly to the chat window!
-
-            raw_error = str(e)
-
-            return Response({"reply": f"**🚨 RAW SYSTEM CRASH:**\n```\n{raw_error}\n```"})
-
 
 # ==========================================
 # 🚀 MODULAR REPORTS HUB
 # ==========================================
-
 @login_required(login_url='/login/')
 @xframe_options_sameorigin
 def report_rent(request, landlord_id):
@@ -1877,10 +1803,30 @@ def report_rent(request, landlord_id):
         chart_labels.append(label)
         chart_data.append(float(c.comprehensive_rent_amount))
 
-    # Dropdown Options
-    properties = Property.objects.filter(owner=landlord).order_by('name')
-    units = Unit.objects.filter(property_asset__owner=landlord).order_by('unit_number')
-    tenants = Tenant.objects.filter(contracts__unit__property_asset__owner=landlord).distinct().order_by('full_name')
+    # 🚀 BUILD PORTFOLIO MAP FOR CASCADING DROPDOWNS
+    properties = Property.objects.filter(owner=landlord).prefetch_related('units__contracts__tenant')
+    portfolio_map = {}
+
+    for p in properties:
+        bldg_data = {'name': p.name, 'units': {}}
+        for u in p.units.all():
+            u_contracts = u.contracts.filter(tenant__isnull=False).select_related('tenant').order_by('-start_date')
+            unit_tenants = []
+            seen_tenants = set()
+            for c in u_contracts:
+                if c.tenant.id not in seen_tenants:
+                    unit_tenants.append({
+                        'id': c.tenant.id,
+                        'name': c.tenant.full_name
+                    })
+                    seen_tenants.add(c.tenant.id)
+
+            bldg_data['units'][u.id] = {
+                'name': u.unit_number,
+                'tenants': unit_tenants
+            }
+        if bldg_data['units']:
+            portfolio_map[p.id] = bldg_data
 
     context = {
         'landlord': landlord,
@@ -1888,14 +1834,11 @@ def report_rent(request, landlord_id):
         'contracts': contracts,
         'chart_labels': json.dumps(chart_labels),
         'chart_data': json.dumps(chart_data),
-        'properties': properties,
-        'units': units,
-        'tenants': tenants,
+        'portfolio_map_json': json.dumps(portfolio_map),
         'filters': {'property': prop_id, 'unit': unit_id, 'tenant': tenant_id, 'date_from': date_from,
                     'date_to': date_to}
     }
     return render(request, 'realestate/report_rent.html', context)
-
 
 @login_required(login_url='/login/')
 @xframe_options_sameorigin
@@ -2154,28 +2097,39 @@ def report_tenant(request, landlord_id):
             return HttpResponseForbidden("<h1>403</h1>")
 
     is_modal = request.GET.get('is_modal') == '1'
+
+    # 🚀 FIX: Now grabbing Property and Unit IDs to isolate the context
+    property_id = request.GET.get('property', '')
+    unit_id = request.GET.get('unit', '')
     tenant_id = request.GET.get('tenant', '')
 
-    # 🚀 1. Build the Cascading Dropdown Map (Building -> Unit -> Tenant)
     properties = Property.objects.filter(owner=landlord).prefetch_related('units__contracts__tenant')
     portfolio_map = {}
 
     for p in properties:
         bldg_data = {'name': p.name, 'units': {}}
         for u in p.units.all():
-            contracts = u.contracts.filter(tenant__isnull=False).select_related('tenant').order_by('-start_date')
-            if contracts.exists():
+            u_contracts = u.contracts.filter(tenant__isnull=False).select_related('tenant').order_by('-start_date')
+            if u_contracts.exists():
+
+                # 🚀 FIX: Enforce "Highlander" rule. Only the absolute newest valid contract is Active.
+                active_tenant_id = None
+                for c in u_contracts:
+                    if c.status not in ['Terminated', 'Closed']:
+                        active_tenant_id = c.tenant.id
+                        break
+
                 unit_tenants = []
-                seen = set()
-                for c in contracts:
-                    if c.tenant.id not in seen:
-                        # Append a clean status label so you know if they are current or past
-                        status_label = "Active" if c.status in ['Active', 'Expired (Holdover)'] else "Past"
+                seen_tenants = set()
+                for c in u_contracts:
+                    if c.tenant.id not in seen_tenants:
+                        status_label = "Active" if c.tenant.id == active_tenant_id else "Past"
                         unit_tenants.append({
                             'id': c.tenant.id,
                             'name': f"{c.tenant.full_name} ({status_label})"
                         })
-                        seen.add(c.tenant.id)
+                        seen_tenants.add(c.tenant.id)
+
                 bldg_data['units'][u.id] = {
                     'name': u.unit_number,
                     'tenants': unit_tenants
@@ -2183,13 +2137,17 @@ def report_tenant(request, landlord_id):
         if bldg_data['units']:
             portfolio_map[p.id] = bldg_data
 
-    # 🚀 2. Process specific tenant if submitted
     tenant_data = None
 
-    if tenant_id:
+    # 🚀 FIX: Require BOTH Tenant and Unit to build the dossier
+    if tenant_id and unit_id:
         tenant = get_object_or_404(Tenant, id=tenant_id)
-        all_contracts = Contract.objects.filter(tenant=tenant, unit__property_asset__owner=landlord).order_by(
-            '-start_date')
+
+        all_contracts = Contract.objects.filter(
+            tenant=tenant,
+            unit_id=unit_id,
+            unit__property_asset__owner=landlord
+        ).order_by('-start_date')
 
         if all_contracts.exists():
             latest_c = all_contracts.first()
@@ -2207,79 +2165,167 @@ def report_tenant(request, landlord_id):
                     days_expired = abs(days_left)
                     days_left = 0
 
-            exp_agg = OwnerExpense.objects.filter(
-                landlord=landlord,
-                unit_name=latest_c.unit.unit_number,
-                tower_name=latest_c.unit.property_asset.name,
-                date__gte=latest_c.start_date if latest_c.start_date else datetime(2000, 1, 1).date()
-            ).aggregate(total=Sum('amount'))
-            expenses = float(exp_agg['total'] or 0)
+        exp_agg = OwnerExpense.objects.filter(
+            landlord=landlord,
+            unit_name=latest_c.unit.unit_number,
+            tower_name=latest_c.unit.property_asset.name,
+            date__gte=latest_c.start_date if latest_c.start_date else datetime(2000, 1, 1).date()
+        ).aggregate(total=Sum('amount'))
+        expenses = float(exp_agg['total'] or 0)
 
-            ui_tracking_no = latest_c.pact_costcenter_id
-            if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None']:
-                raw_entries = list(ContractLedger.objects.filter(contract__pact_costcenter_id=ui_tracking_no,
-                                                                 contract__tenant=tenant).order_by('doc_date'))
+        # ==========================================
+        # 🚀 EXACT LEDGER ENGINE FROM OCCUPANCY STATUS
+        # ==========================================
+
+        pact_ll_id = str(landlord.pact_landlord_id).strip()
+        prefix_map = {'14': ['05'], '15': ['07'], '16': ['08'], '17': ['02'], '18': ['09'], '19': ['06']}
+        allowed_prefixes = prefix_map.get(pact_ll_id, [])
+        if '02' not in allowed_prefixes: allowed_prefixes.append('02')
+
+        ui_tracking_no = latest_c.pact_costcenter_id
+
+        official_ledger = []
+        existing_cheques = set()
+        existing_irv_keys = set()
+
+        if ui_tracking_no and ui_tracking_no not in ['0', '1', 'None', '']:
+            raw_entries = list(ContractLedger.objects.filter(
+                contract__pact_costcenter_id=ui_tracking_no,
+                contract__tenant=tenant
+            ))
+        else:
+            raw_entries = list(latest_c.true_ledger_entries.all())
+
+        rogue_entries = set()
+        brv_tracker = {}
+
+        for entry in raw_entries:
+            if entry.doc_abbr in ['BRV', 'CRV', 'CRO']:
+                key = f"{entry.doc_no}_{str(entry.chq_no).strip()}"
+                if key not in brv_tracker:
+                    brv_tracker[key] = []
+                brv_tracker[key].append(entry)
+
+        for key, entries in brv_tracker.items():
+            if len(entries) > 1:
+                entries.sort(key=lambda x: float(x.amount), reverse=True)
+                for rogue in entries[1:]:
+                    rogue_entries.add(rogue.id)
+
+        for entry in raw_entries:
+            if entry.id in rogue_entries:
+                continue
+
+            if allowed_prefixes and entry.doc_no and '-' in entry.doc_no and '/' in entry.doc_no:
+                comp_code = entry.doc_no.split('-')[-1].split('/')[0].strip()
+                if comp_code.isdigit() and len(comp_code) == 2 and comp_code not in allowed_prefixes:
+                    continue
+
+            amt = float(entry.amount)
+
+            if entry.chq_no and str(entry.chq_no).strip() not in ['None', '']:
+                existing_cheques.add(str(entry.chq_no).strip())
+
+            if entry.chq_date and entry.amount:
+                existing_irv_keys.add(f"{entry.chq_date.strftime('%Y-%m-%d')}_{amt}")
+            elif entry.doc_date and entry.amount:
+                existing_irv_keys.add(f"{entry.doc_date.strftime('%Y-%m-%d')}_{amt}")
+
+            official_ledger.append({
+                'date': entry.doc_date,
+                'doc_no': entry.doc_no,
+                'particular': entry.particular,
+                'amount': amt,
+                'is_debit': entry.is_debit,
+                'chq_no': entry.chq_no,
+            })
+
+        official_ledger.sort(key=lambda x: x['date'] if x['date'] else datetime.min.date())
+
+        pdc_total = 0.0
+
+        # Scan collections to identify outstanding PDCs that aren't logged in the ledger yet
+        for c in all_contracts:
+            for col in c.rent_collections:
+                part_label = str(col.particular).strip()
+                amt = float(col.amount)
+
+                if part_label.lower() in ['tasdeeq', 'sewerage', 'security deposit']:
+                    continue
+
+                chq_key = f"{col.due_date.strftime('%Y-%m-%d')}_{amt}" if col.due_date else ""
+                is_in_ledger = False
+
+                if col.cheque_number and str(col.cheque_number).strip() in existing_cheques:
+                    is_in_ledger = True
+                elif chq_key and chq_key in existing_irv_keys:
+                    is_in_ledger = True
+
+                if not is_in_ledger and col.due_date and col.status == 'Pending PDC':
+                    pdc_total += amt
+                    official_ledger.append({
+                        'date': col.due_date,
+                        'doc_no': f"PDR (Pending)",
+                        'particular': 'PDC Receivable',
+                        'amount': amt,
+                        'is_debit': False,
+                        'chq_no': col.cheque_number,
+                    })
+
+        official_ledger.sort(key=lambda x: x['date'] if x['date'] else datetime.min.date())
+
+        running_bal = 0.0
+        true_total_dr = 0.0
+        true_total_cr = 0.0
+        formatted_ledger = []
+
+        for item in official_ledger:
+            if 'PDR' in str(item['doc_no']).upper():
+                bal_str = "N/A"
+            elif item['is_debit']:
+                running_bal += item['amount']
+                true_total_dr += item['amount']
+                bal_str = f"{running_bal:,.2f} Dr" if running_bal >= 0 else f"{abs(running_bal):,.2f} Cr"
             else:
-                raw_entries = list(latest_c.true_ledger_entries.all().order_by('doc_date'))
+                running_bal -= item['amount']
+                true_total_cr += item['amount']
+                bal_str = f"{running_bal:,.2f} Dr" if running_bal >= 0 else f"{abs(running_bal):,.2f} Cr"
 
-            ledger = []
-            running_bal, true_debits, true_credits = 0.0, 0.0, 0.0
+            formatted_ledger.append({
+                'date': item['date'],
+                'doc_no': item['doc_no'],
+                'particular': item['particular'],
+                'debit': item['amount'] if item['is_debit'] else 0.0,
+                'credit': item['amount'] if not item['is_debit'] else 0.0,
+                'balance': bal_str,
+                'chq_no': item['chq_no']
+            })
 
-            for entry in raw_entries:
-                amt = float(entry.amount)
-                if entry.is_debit:
-                    running_bal += amt
-                    true_debits += amt
-                else:
-                    running_bal -= amt
-                    true_credits += amt
+        cleared_rent = true_total_cr
+        adjusted_rent = float(latest_c.comprehensive_rent_amount)
+        total_rent = true_total_dr if true_total_dr > 0 else adjusted_rent
 
-                ledger.append({
-                    'date': entry.doc_date,
-                    'doc_no': entry.doc_no,
-                    'particular': entry.particular,
-                    'debit': amt if entry.is_debit else 0,
-                    'credit': amt if not entry.is_debit else 0,
-                    'balance': running_bal,
-                    'chq_no': entry.chq_no
-                })
-
-            pdcs = latest_c.collections.filter(status='Pending PDC')
-            for p in pdcs:
-                ledger.append({
-                    'date': p.due_date,
-                    'doc_no': 'PDR (Pending)',
-                    'particular': 'PDC Receivable',
-                    'debit': 0,
-                    'credit': float(p.amount),
-                    'balance': 'N/A',
-                    'chq_no': p.cheque_number
-                })
-
-            ledger.sort(key=lambda x: x['date'] if x['date'] else datetime.min.date())
-
-            cleared_rent = true_credits
-            total_rent = true_debits if true_debits > 0 else float(latest_c.comprehensive_rent_amount)
-
-            tenant_data = {
-                'tenant': tenant,
-                'latest_contract': latest_c,
-                'old_contracts': old_contracts,
-                'time_pct': time_pct,
-                'days_left': days_left,
-                'days_expired': days_expired,
-                'expenses': expenses,
-                'ledger': ledger,
-                'cleared_rent': cleared_rent,
-                'total_rent': total_rent,
-                'pdc_total': sum(float(p.amount) for p in pdcs)
-            }
+        tenant_data = {
+            'tenant': tenant,
+            'latest_contract': latest_c,
+            'old_contracts': old_contracts,
+            'time_pct': time_pct,
+            'days_left': days_left,
+            'days_expired': days_expired,
+            'expenses': expenses,
+            'ledger': formatted_ledger,
+            'cleared_rent': cleared_rent,
+            'total_rent': total_rent,
+            'pdc_total': pdc_total
+        }
 
     context = {
         'landlord': landlord,
         'is_modal': is_modal,
         'portfolio_map_json': json.dumps(portfolio_map),
-        'selected_tenant_id': int(tenant_id) if tenant_id and tenant_id.isdigit() else '',
+        'selected_property_id': property_id,
+        'selected_unit_id': unit_id,
+        'selected_tenant_id': tenant_id,
         'tenant_data': tenant_data
     }
     return render(request, 'realestate/report_tenant.html', context)

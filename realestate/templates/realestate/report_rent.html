@@ -15,7 +15,8 @@
     .filter-row { display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
     .filter-group { display: flex; flex-direction: column; flex: 1; min-width: 150px; }
     .filter-label { font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 5px; }
-    .filter-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background-color: #f8fafc; }
+    .filter-input { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.9rem; background-color: #fff; }
+    .filter-input:disabled { background-color: #f1f5f9; cursor: not-allowed; }
     .btn-primary { background-color: #2563eb; color: white; border: none; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; text-decoration: none; text-align: center; }
     .btn-primary:hover { background-color: #1d4ed8; color: white; }
 
@@ -35,30 +36,21 @@
             {% if is_modal %}<input type="hidden" name="is_modal" value="1">{% endif %}
             <div class="filter-row">
                 <div class="filter-group">
-                    <label class="filter-label">Property</label>
-                    <select name="property" class="filter-input">
+                    <label class="filter-label">1. Property</label>
+                    <select id="propertySelect" name="property" class="filter-input" onchange="updateUnits()">
                         <option value="">All Properties</option>
-                        {% for p in properties %}
-                            <option value="{{ p.id }}" {% if filters.property == p.id|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>
-                        {% endfor %}
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label class="filter-label">Unit</label>
-                    <select name="unit" class="filter-input">
+                    <label class="filter-label">2. Unit</label>
+                    <select id="unitSelect" name="unit" class="filter-input" onchange="updateTenants()" disabled>
                         <option value="">All Units</option>
-                        {% for u in units %}
-                            <option value="{{ u.id }}" {% if filters.unit == u.id|stringformat:"s" %}selected{% endif %}>{{ u.unit_number }} ({{ u.property_asset.name }})</option>
-                        {% endfor %}
                     </select>
                 </div>
                 <div class="filter-group">
-                    <label class="filter-label">Tenant</label>
-                    <select name="tenant" class="filter-input">
+                    <label class="filter-label">3. Tenant</label>
+                    <select id="tenantSelect" name="tenant" class="filter-input" disabled>
                         <option value="">All Tenants</option>
-                        {% for t in tenants %}
-                            <option value="{{ t.id }}" {% if filters.tenant == t.id|stringformat:"s" %}selected{% endif %}>{{ t.full_name }}</option>
-                        {% endfor %}
                     </select>
                 </div>
                 <div class="filter-group">
@@ -128,6 +120,91 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    // --- 🚀 CASCADING DROPDOWN LOGIC ---
+    const portfolioMap = {{ portfolio_map_json|safe }};
+    const propSelect = document.getElementById('propertySelect');
+    const unitSelect = document.getElementById('unitSelect');
+    const tenantSelect = document.getElementById('tenantSelect');
+
+    // Values to remember after form submission
+    const preProp = "{{ filters.property }}";
+    const preUnit = "{{ filters.unit }}";
+    const preTenant = "{{ filters.tenant }}";
+
+    // 1. Load Properties
+    Object.keys(portfolioMap).forEach(bldgId => {
+        let opt = document.createElement('option');
+        opt.value = bldgId;
+        opt.textContent = portfolioMap[bldgId].name;
+        if (bldgId === preProp) opt.selected = true;
+        propSelect.appendChild(opt);
+    });
+
+    // 2. Update Units based on Property
+    function updateUnits(retainSelection=false) {
+        const bldgId = propSelect.value;
+        unitSelect.innerHTML = '<option value="">All Units</option>';
+        tenantSelect.innerHTML = '<option value="">All Tenants</option>';
+
+        if (bldgId === "") {
+            unitSelect.disabled = true;
+            tenantSelect.disabled = true;
+            return;
+        }
+
+        unitSelect.disabled = false;
+        tenantSelect.disabled = true; // Tenant requires a unit to be selected first
+
+        if (portfolioMap[bldgId]) {
+            const units = portfolioMap[bldgId].units;
+            const sortedUnitIds = Object.keys(units).sort((a, b) => {
+                return units[a].name.localeCompare(units[b].name, undefined, {numeric: true});
+            });
+
+            sortedUnitIds.forEach(uId => {
+                let opt = document.createElement('option');
+                opt.value = uId;
+                opt.textContent = 'Unit ' + units[uId].name;
+                if (retainSelection && uId === preUnit) opt.selected = true;
+                unitSelect.appendChild(opt);
+            });
+        }
+    }
+
+    // 3. Update Tenants based on Unit
+    function updateTenants(retainSelection=false) {
+        const bldgId = propSelect.value;
+        const unitId = unitSelect.value;
+        tenantSelect.innerHTML = '<option value="">All Tenants</option>';
+
+        if (unitId === "") {
+            tenantSelect.disabled = true;
+            return;
+        }
+
+        tenantSelect.disabled = false;
+
+        if (bldgId && unitId && portfolioMap[bldgId] && portfolioMap[bldgId].units[unitId]) {
+            const tenants = portfolioMap[bldgId].units[unitId].tenants;
+            tenants.forEach(t => {
+                let opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name;
+                if (retainSelection && t.id.toString() === preTenant) opt.selected = true;
+                tenantSelect.appendChild(opt);
+            });
+        }
+    }
+
+    // Initialize state on load
+    if (preProp) {
+        updateUnits(true);
+        if (preUnit) {
+            updateTenants(true);
+        }
+    }
+
+    // --- CHART LOGIC ---
     const ctx = document.getElementById('rentTrendChart').getContext('2d');
     new Chart(ctx, {
         type: 'line',
